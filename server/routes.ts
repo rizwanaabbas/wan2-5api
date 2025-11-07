@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { insertProjectSchema, insertVideoSchema } from "@shared/schema";
+import { generateVeo3Video, getAspectRatioFromResolution, getVeo3Resolution } from "./veo3";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Project endpoints
@@ -93,40 +94,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/videos", async (req, res) => {
     try {
       const data = insertVideoSchema.parse(req.body);
+      
+      // Get project to access global prompt
+      const project = await storage.getProject(data.projectId);
+      if (!project) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      // Combine global prompt with video prompt
+      let finalPrompt = data.prompt;
+      if (project.globalPrompt?.trim()) {
+        finalPrompt = `${project.globalPrompt.trim()}\n\n${data.prompt}`;
+      }
+
       const video = await storage.createVideo(data);
 
-      // Simulate video generation process
-      // In a real implementation, this would trigger actual AI model processing
-      setTimeout(async () => {
-        await storage.updateVideo(video.id, {
-          status: "processing",
-          progress: 25,
-        });
-
-        setTimeout(async () => {
+      // Generate video with Veo3 in background
+      (async () => {
+        try {
           await storage.updateVideo(video.id, {
             status: "processing",
-            progress: 50,
+            progress: 10,
           });
 
-          setTimeout(async () => {
-            await storage.updateVideo(video.id, {
-              status: "processing",
-              progress: 75,
-            });
+          const aspectRatio = getAspectRatioFromResolution(data.resolution);
+          const resolution = getVeo3Resolution(data.resolution);
 
-            setTimeout(async () => {
-              // Simulate completion without actual video generation
-              // In production, this would be replaced with actual AI video generation
-              await storage.updateVideo(video.id, {
-                status: "completed",
-                progress: 100,
-                duration: 5,
-              });
-            }, 3000);
-          }, 3000);
-        }, 3000);
-      }, 2000);
+          const result = await generateVeo3Video({
+            prompt: finalPrompt,
+            aspectRatio,
+            resolution,
+            duration: 8,
+            generateAudio: true,
+          });
+
+          // Veo3 generates 2 versions - use the first one
+          const videoUrl = result.videos[0]?.url;
+          
+          if (!videoUrl) {
+            throw new Error("No video URL returned from Veo3");
+          }
+
+          await storage.updateVideo(video.id, {
+            status: "completed",
+            progress: 100,
+            videoUrl,
+            duration: result.duration,
+          });
+        } catch (error: any) {
+          console.error("Video generation error:", error);
+          await storage.updateVideo(video.id, {
+            status: "failed",
+            progress: 0,
+            errorMessage: error.message || "Failed to generate video",
+          });
+        }
+      })();
 
       res.status(201).json(video);
     } catch (error: any) {

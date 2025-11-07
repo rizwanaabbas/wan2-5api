@@ -49,8 +49,9 @@ function AppContent() {
   }, {});
 
   const createProjectMutation = useMutation({
-    mutationFn: async (name: string) => {
-      return apiRequest("POST", "/api/projects", { name });
+    mutationFn: async (data: { name: string; globalPrompt?: string }) => {
+      const res = await apiRequest("POST", "/api/projects", data);
+      return res.json();
     },
     onSuccess: (newProject: Project) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
@@ -71,8 +72,9 @@ function AppContent() {
   });
 
   const renameProjectMutation = useMutation({
-    mutationFn: async ({ id, name }: { id: string; name: string }) => {
-      return apiRequest("PATCH", `/api/projects/${id}`, { name });
+    mutationFn: async ({ id, name, globalPrompt }: { id: string; name: string; globalPrompt?: string }) => {
+      const res = await apiRequest("PATCH", `/api/projects/${id}`, { name, globalPrompt });
+      return res.json();
     },
     onSuccess: (updatedProject: Project) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
@@ -94,7 +96,7 @@ function AppContent() {
 
   const deleteProjectMutation = useMutation({
     mutationFn: async (id: string) => {
-      return apiRequest("DELETE", `/api/projects/${id}`, undefined);
+      await apiRequest("DELETE", `/api/projects/${id}`, undefined);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
@@ -132,11 +134,11 @@ function AppContent() {
     setDeleteDialogOpen(true);
   };
 
-  const handleProjectDialogSubmit = (name: string) => {
+  const handleProjectDialogSubmit = (name: string, globalPrompt?: string) => {
     if (projectDialogMode === "create") {
-      createProjectMutation.mutate(name);
+      createProjectMutation.mutate({ name, globalPrompt });
     } else if (selectedProject) {
-      renameProjectMutation.mutate({ id: selectedProject.id, name });
+      renameProjectMutation.mutate({ id: selectedProject.id, name, globalPrompt });
     }
   };
 

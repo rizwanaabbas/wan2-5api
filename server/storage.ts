@@ -45,6 +45,7 @@ export class MemStorage implements IStorage {
     const project: Project = {
       ...insertProject,
       id,
+      globalPrompt: insertProject.globalPrompt ?? null,
       createdAt: new Date(),
     };
     this.projects.set(id, project);
@@ -96,6 +97,7 @@ export class MemStorage implements IStorage {
       progress: 0,
       videoUrl: null,
       thumbnailUrl: null,
+      sourceImageUrl: insertVideo.sourceImageUrl ?? null,
       duration: null,
       errorMessage: null,
       createdAt: new Date(),
