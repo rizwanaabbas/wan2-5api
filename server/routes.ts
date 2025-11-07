@@ -116,12 +116,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
 
             setTimeout(async () => {
-              // Simulate completion with a mock video URL
+              // Simulate completion without actual video generation
+              // In production, this would be replaced with actual AI video generation
               await storage.updateVideo(video.id, {
                 status: "completed",
                 progress: 100,
-                videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                thumbnailUrl: null,
                 duration: 5,
               });
             }, 3000);

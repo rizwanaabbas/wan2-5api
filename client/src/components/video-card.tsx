@@ -61,7 +61,7 @@ export function VideoCard({ video, onPlay, onDownload }: VideoCardProps) {
           </div>
         )}
 
-        {video.status === "completed" && (
+        {video.status === "completed" && video.videoUrl && (
           <button
             onClick={() => onPlay(video)}
             className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 hover:opacity-100 transition-opacity group"
@@ -71,6 +71,16 @@ export function VideoCard({ video, onPlay, onDownload }: VideoCardProps) {
               <Play className="w-8 h-8 text-primary-foreground ml-1" fill="currentColor" />
             </div>
           </button>
+        )}
+        
+        {video.status === "completed" && !video.videoUrl && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-muted/95 to-muted/80 backdrop-blur-sm">
+            <div className="text-center px-4">
+              <AlertCircle className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+              <p className="text-xs font-medium text-muted-foreground">Simulation Complete</p>
+              <p className="text-xs text-muted-foreground mt-1">No video generated</p>
+            </div>
+          </div>
         )}
 
         <div className="absolute top-2 right-2">
@@ -120,6 +130,14 @@ export function VideoCard({ video, onPlay, onDownload }: VideoCardProps) {
             </Button>
           )}
         </div>
+
+        {video.status === "completed" && !video.videoUrl && (
+          <div className="p-2 rounded bg-muted border border-border">
+            <p className="text-xs text-muted-foreground">
+              Generation simulation complete. In production, this would contain your AI-generated video.
+            </p>
+          </div>
+        )}
 
         {video.status === "failed" && video.errorMessage && (
           <div className="p-2 rounded bg-destructive/10 border border-destructive/20">
