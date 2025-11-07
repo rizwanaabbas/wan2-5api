@@ -6,6 +6,7 @@ import { z } from "zod";
 export const projects = pgTable("projects", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
+  globalPrompt: text("global_prompt"), // Prepended to all video prompts in this project
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
