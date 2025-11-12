@@ -6,11 +6,17 @@ if (!process.env.DASHSCOPE_API_KEY) {
 }
 
 export interface WanGenerationInput {
+  model: string; // "wan2.5-t2v-preview", "wan2.5-i2v-preview", "wan2.2-i2v-plus"
   prompt: string;
+  negativePrompt?: string;
   size?: string;
   duration?: number;
   promptExtend?: boolean;
-  audio?: boolean;
+  // Audio options
+  audioMode?: "auto" | "custom" | "silent";
+  audioUrl?: string;
+  // Image-to-video options
+  imageUrl?: string;
 }
 
 export interface WanGenerationResult {
@@ -103,6 +109,54 @@ export async function generateWanVideo(
   }
 
   try {
+    // Build input object
+    const apiInput: any = {
+      prompt: input.prompt,
+    };
+
+    // Add negative prompt if provided
+    if (input.negativePrompt) {
+      apiInput.negative_prompt = input.negativePrompt;
+    }
+
+    // Add image URL for image-to-video models
+    if (input.imageUrl) {
+      apiInput.img_url = input.imageUrl;
+    }
+
+    // Add custom audio URL if provided
+    if (input.audioMode === "custom" && input.audioUrl) {
+      apiInput.audio_url = input.audioUrl;
+    }
+
+    // Validate custom audio mode
+    if (input.audioMode === "custom" && !input.audioUrl) {
+      throw new Error("Audio URL is required when audio mode is 'custom'");
+    }
+
+    // Build parameters object
+    const parameters: any = {
+      prompt_extend: input.promptExtend !== false,
+    };
+
+    // Add size parameter (Wan API expects "size" field with width*height format)
+    if (input.size) {
+      parameters.size = input.size;
+    }
+
+    // Add duration for models that support it
+    if (input.duration && (input.model === "wan2.5-t2v-preview" || input.model === "wan2.5-i2v-preview")) {
+      parameters.duration = input.duration;
+    }
+
+    // Handle audio parameter based on audio mode
+    if (input.audioMode === "auto") {
+      parameters.audio = true;
+    } else if (input.audioMode === "silent") {
+      parameters.audio = false;
+    }
+    // For custom audio, we don't include the audio parameter - it's implicit from audio_url
+
     // Submit video generation task
     const response = await fetch(DASHSCOPE_API_URL, {
       method: "POST",
@@ -112,16 +166,9 @@ export async function generateWanVideo(
         "X-DashScope-Async": "enable",
       },
       body: JSON.stringify({
-        model: "wan2.5-t2v-preview",
-        input: {
-          prompt: input.prompt,
-        },
-        parameters: {
-          size: input.size || "832*480",
-          prompt_extend: input.promptExtend !== false,
-          duration: input.duration || 10,
-          audio: input.audio !== false,
-        },
+        model: input.model,
+        input: apiInput,
+        parameters,
       }),
     });
 
@@ -138,8 +185,16 @@ export async function generateWanVideo(
       throw new Error("No task ID returned from API");
     }
 
+    const logDetails = [
+      `model=${input.model}`,
+      input.size ? `resolution=${input.size}` : null,
+      input.duration ? `duration=${input.duration}s` : null,
+      input.audioMode ? `audio=${input.audioMode}` : null,
+      input.imageUrl ? `image=${input.imageUrl.substring(0, 30)}...` : null,
+    ].filter(Boolean).join(", ");
+
     console.log(`Wan video generation task submitted: ${result.output.task_id}`);
-    console.log(`Request: model=${input.size}, duration=${input.duration}s, prompt="${input.prompt.substring(0, 50)}..."`);
+    console.log(`Request: ${logDetails}, prompt="${input.prompt.substring(0, 50)}..."`);
 
     // Poll for completion
     return await pollTaskStatus(result.output.task_id, onProgress);

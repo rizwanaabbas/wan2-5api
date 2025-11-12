@@ -8,9 +8,16 @@ import { generateWanVideo, getWanSize } from "./wan";
 // Helper function to start video generation job
 async function startVideoGenerationJob(
   videoId: string,
+  model: string,
   prompt: string,
   resolution: string,
-  duration: number = 10
+  options: {
+    negativePrompt?: string;
+    audioMode?: string;
+    audioUrl?: string;
+    imageUrl?: string;
+    duration?: number;
+  } = {}
 ) {
   try {
     await storage.updateVideo(videoId, {
@@ -25,11 +32,15 @@ async function startVideoGenerationJob(
 
     const result = await generateWanVideo(
       {
+        model,
         prompt,
+        negativePrompt: options.negativePrompt,
         size,
-        duration,
+        duration: options.duration || 10,
         promptExtend: true,
-        audio: true,
+        audioMode: (options.audioMode as any) || "auto",
+        audioUrl: options.audioUrl,
+        imageUrl: options.imageUrl,
       },
       async (progress: number) => {
         // Only update DB if progress increased by at least 5%
@@ -44,6 +55,7 @@ async function startVideoGenerationJob(
     await storage.updateVideo(videoId, {
       status: "completed",
       progress: 100,
+      taskId: result.taskId,
       videoUrl: result.videoUrl,
       duration: result.duration,
     });
@@ -79,7 +91,13 @@ async function recoverStuckVideos() {
         }
         
         // Restart the generation job (don't await - run in background)
-        startVideoGenerationJob(video.id, finalPrompt, video.resolution).catch(err => {
+        startVideoGenerationJob(video.id, video.model, finalPrompt, video.resolution, {
+          negativePrompt: video.negativePrompt || undefined,
+          audioMode: video.audioMode || undefined,
+          audioUrl: video.audioUrl || undefined,
+          imageUrl: video.sourceImageUrl || undefined,
+          duration: video.duration || undefined,
+        }).catch(err => {
           console.error(`Failed to restart video ${video.id}:`, err);
         });
       }
@@ -184,6 +202,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const data = insertVideoSchema.parse(req.body);
       
+      // Validate custom audio mode
+      if (data.audioMode === "custom" && !data.audioUrl) {
+        return res.status(400).json({ error: "Audio URL is required when audio mode is 'custom'" });
+      }
+
+      // Validate image-to-video requirements
+      if (data.generationType === "image-to-video" && !data.sourceImageUrl) {
+        return res.status(400).json({ error: "Source image URL is required for image-to-video generation" });
+      }
+      
       // Get project to access global prompt
       const project = await storage.getProject(data.projectId);
       if (!project) {
@@ -199,7 +227,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const video = await storage.createVideo(data);
 
       // Start video generation in background
-      startVideoGenerationJob(video.id, finalPrompt, data.resolution).catch(err => {
+      startVideoGenerationJob(video.id, data.model, finalPrompt, data.resolution, {
+        negativePrompt: data.negativePrompt || undefined,
+        audioMode: data.audioMode || undefined,
+        audioUrl: data.audioUrl || undefined,
+        imageUrl: data.sourceImageUrl || undefined,
+        duration: 10,
+      }).catch(err => {
         console.error(`Background job failed for video ${video.id}:`, err);
       });
 
@@ -260,7 +294,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Start video regeneration in background
-      startVideoGenerationJob(req.params.id, finalPrompt, video.resolution).catch(err => {
+      startVideoGenerationJob(req.params.id, video.model, finalPrompt, video.resolution, {
+        negativePrompt: video.negativePrompt || undefined,
+        audioMode: video.audioMode || undefined,
+        audioUrl: video.audioUrl || undefined,
+        imageUrl: video.sourceImageUrl || undefined,
+        duration: video.duration || undefined,
+      }).catch(err => {
         console.error(`Background regeneration job failed for video ${req.params.id}:`, err);
       });
 

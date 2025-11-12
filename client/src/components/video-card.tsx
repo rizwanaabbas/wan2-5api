@@ -1,7 +1,7 @@
 import { Video } from "@shared/schema";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Play, Download, Clock, Maximize2, Loader2, AlertCircle, RefreshCw } from "lucide-react";
+import { Play, Download, Clock, Maximize2, Loader2, AlertCircle, RefreshCw, Image as ImageIcon, Video as VideoIcon, Volume2, VolumeX, Music } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 
@@ -47,7 +47,13 @@ export function VideoCard({ video, onPlay, onDownload, onEdit }: VideoCardProps)
   return (
     <Card className="overflow-hidden hover-elevate transition-all" data-testid={`card-video-${video.id}`}>
       <div className="relative aspect-video bg-muted">
-        {video.thumbnailUrl ? (
+        {video.sourceImageUrl && video.generationType === "image-to-video" ? (
+          <img
+            src={video.sourceImageUrl}
+            alt={`Source image for ${video.name}`}
+            className="w-full h-full object-cover"
+          />
+        ) : video.thumbnailUrl ? (
           <img
             src={video.thumbnailUrl}
             alt={video.name}
@@ -84,7 +90,20 @@ export function VideoCard({ video, onPlay, onDownload, onEdit }: VideoCardProps)
           </div>
         )}
 
-        <div className="absolute top-2 right-2">
+        <div className="absolute top-2 right-2 flex gap-2">
+          <Badge variant="secondary" className="bg-background/80 backdrop-blur-sm">
+            {video.generationType === "text-to-video" ? (
+              <>
+                <VideoIcon className="w-3 h-3 mr-1" />
+                T2V
+              </>
+            ) : (
+              <>
+                <ImageIcon className="w-3 h-3 mr-1" />
+                I2V
+              </>
+            )}
+          </Badge>
           {getStatusBadge()}
         </div>
       </div>
@@ -97,11 +116,31 @@ export function VideoCard({ video, onPlay, onDownload, onEdit }: VideoCardProps)
           <p className="text-xs text-muted-foreground line-clamp-2">{video.prompt}</p>
         </div>
 
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+        <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
           <div className="flex items-center gap-1.5">
             <Badge variant="outline" className="font-mono text-xs">
-              Wan 2.5
+              {video.model === "wan2.5-t2v-preview" && "T2V 2.5"}
+              {video.model === "wan2.5-i2v-preview" && "I2V 2.5"}
+              {video.model === "wan2.2-i2v-plus" && "I2V 2.2+"}
             </Badge>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {video.audioMode === "auto" && (
+              <span title="AI-generated audio">
+                <Volume2 className="w-3 h-3" />
+              </span>
+            )}
+            {video.audioMode === "custom" && (
+              <span title="Custom audio">
+                <Music className="w-3 h-3" />
+              </span>
+            )}
+            {video.audioMode === "silent" && (
+              <span title="No audio">
+                <VolumeX className="w-3 h-3" />
+              </span>
+            )}
+            <span className="capitalize">{video.audioMode}</span>
           </div>
           <div className="flex items-center gap-1.5">
             <Maximize2 className="w-3 h-3" />
@@ -111,6 +150,13 @@ export function VideoCard({ video, onPlay, onDownload, onEdit }: VideoCardProps)
             <div className="flex items-center gap-1.5">
               <Clock className="w-3 h-3" />
               <span>{video.duration}s</span>
+            </div>
+          )}
+          {video.taskId && (
+            <div className="flex items-center gap-1.5" title={`Task ID: ${video.taskId}`}>
+              <Badge variant="secondary" className="font-mono text-xs">
+                {video.taskId.slice(0, 8)}...
+              </Badge>
             </div>
           )}
         </div>

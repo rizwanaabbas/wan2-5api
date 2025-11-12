@@ -117,12 +117,16 @@ Preferred communication style: Simple, everyday language.
 - cmdk for command palette functionality
 
 **AI Video Generation**
-- **Alibaba Cloud Wan 2.5** via DashScope API
+- **Alibaba Cloud Wan API** via DashScope
 - Requires `DASHSCOPE_API_KEY` environment secret for API authentication
-- Text-to-video generation with model: `wan2.5-t2v-preview`
-- Configurable video size (e.g., "832*480"), duration (up to 10s), and audio generation
+- Supports multiple models:
+  - `wan2.5-t2v-preview`: Text-to-video with duration up to 10s
+  - `wan2.5-i2v-preview`: Image-to-video with duration up to 10s
+  - `wan2.2-i2v-plus`: Image-to-video (no duration control)
+- Configurable video size (13 resolutions), negative prompts, and audio generation
+- Audio modes: auto (AI-generated), custom (upload file), silent (no audio)
 - Prompt extension feature for enhanced video quality
-- Background async processing with status polling
+- Background async processing with status polling and automatic recovery
 
 **Database & API**
 - Neon serverless PostgreSQL client (`@neondatabase/serverless`)
@@ -168,6 +172,41 @@ Preferred communication style: Simple, everyday language.
 - Created `DbStorage` implementation for persistent data storage
 - Database actively used for all project and video operations
 
+**Image-to-Video & Advanced Features (November 12, 2025 - Latest)**
+- Expanded schema to support image-to-video workflows:
+  - Added `taskId` field to store Wan API task ID for tracking
+  - Added `negativePrompt` field for negative prompt support
+  - Added `audioMode` field with options: "auto", "custom", "silent"
+  - Added `audioUrl` field for custom audio file uploads
+  - Updated `model` field to support all three Wan models
+- Enhanced Wan API integration (`server/wan.ts`):
+  - Updated `WanGenerationInput` interface to support all new features
+  - Added validation for custom audio mode (requires audioUrl)
+  - Fixed critical bug: Changed `parameters.resolution` to `parameters.size` for correct API format
+  - Supports img_url, audio_url, negative_prompt parameters
+  - Task ID now stored in database for tracking
+- Backend improvements (`server/routes.ts`):
+  - Updated `startVideoGenerationJob()` helper to accept model and options
+  - Added validation for custom audio and image-to-video requirements
+  - Recovery system now restarts stuck videos with all original parameters
+  - All three generation modes validated before API calls
+- Frontend video generation form (`client/src/pages/generate-video.tsx`):
+  - Model selector for image-to-video (wan2.5-i2v-preview or wan2.2-i2v-plus)
+  - Negative prompt textarea for specifying unwanted elements
+  - Audio mode selector (auto/custom/silent) with conditional custom audio upload
+  - Auto-switches model when changing between text-to-video and image-to-video
+  - Validates all requirements before submission (image for I2V, audio file for custom mode)
+- Enhanced video card display (`client/src/components/video-card.tsx`):
+  - Generation type badge (T2V/I2V) with icons
+  - Source image thumbnail display for image-to-video
+  - Audio mode display with icons (Volume2, Music, VolumeX)
+  - Model-specific badges (T2V 2.5, I2V 2.5, I2V 2.2+)
+  - Task ID display (truncated to 8 chars with full ID in tooltip)
+- Improved edit/regenerate dialog (`client/src/components/edit-video-dialog.tsx`):
+  - Shows all current video settings as read-only information
+  - Displays model, generation type, resolution, audio mode, and negative prompt
+  - Clear indication that only prompt can be modified during regeneration
+
 **Bug Fixes (November 12, 2025)**
 - Fixed resolution selector buttons submitting form: Added `type="button"` to all resolution buttons to prevent accidental form submission
 - Fixed video progress stuck at 10%: 
@@ -175,6 +214,7 @@ Preferred communication style: Simple, everyday language.
   - Implemented throttled progress updates (5% increments) during Wan API polling
   - Added comprehensive logging and error handling for progress tracking
   - Progress now updates from 10% → 15% → 20% → ... → 90% → 100%
+- Fixed Wan API parameter bug: Corrected `parameters.resolution` to `parameters.size`
 - Fixed mutation response parsing in `App.tsx` to correctly extract JSON from API responses
 - Resolved navigation issues after project creation
 - Fixed TypeScript type compatibility in storage implementations

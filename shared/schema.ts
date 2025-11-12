@@ -15,14 +15,18 @@ export const videos = pgTable("videos", {
   projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: 'cascade' }),
   name: text("name").notNull(),
   prompt: text("prompt").notNull(),
-  model: text("model").notNull(), // "wan2.5" (Alibaba Cloud Wan 2.5)
+  negativePrompt: text("negative_prompt"), // Optional negative prompt
+  model: text("model").notNull(), // "wan2.5-t2v-preview", "wan2.5-i2v-preview", "wan2.2-i2v-plus"
   generationType: text("generation_type").notNull(), // "text-to-video" or "image-to-video"
   resolution: text("resolution").notNull(), // e.g., "720x720", "1280x704"
   status: text("status").notNull().default("pending"), // "pending", "processing", "completed", "failed"
   progress: integer("progress").default(0), // 0-100
+  taskId: varchar("task_id"), // Wan API task ID for tracking
   videoUrl: text("video_url"),
   thumbnailUrl: text("thumbnail_url"),
   sourceImageUrl: text("source_image_url"), // For image-to-video
+  audioMode: varchar("audio_mode").default("auto"), // "auto", "custom", "silent"
+  audioUrl: text("audio_url"), // For custom audio
   duration: integer("duration"), // in seconds
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -38,6 +42,7 @@ export const insertVideoSchema = createInsertSchema(videos).omit({
   createdAt: true,
   status: true,
   progress: true,
+  taskId: true,
   videoUrl: true,
   thumbnailUrl: true,
   duration: true,
@@ -49,9 +54,10 @@ export type Project = typeof projects.$inferSelect;
 export type InsertVideo = z.infer<typeof insertVideoSchema>;
 export type Video = typeof videos.$inferSelect;
 
-export type ModelType = "wan2.5";
+export type ModelType = "wan2.5-t2v-preview" | "wan2.5-i2v-preview" | "wan2.2-i2v-plus";
 export type GenerationType = "text-to-video" | "image-to-video";
 export type VideoStatus = "pending" | "processing" | "completed" | "failed";
+export type AudioMode = "auto" | "custom" | "silent";
 
 export interface ResolutionOption {
   label: string;
