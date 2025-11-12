@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { insertProjectSchema, insertVideoSchema } from "@shared/schema";
-import { generateVeo3Video, getAspectRatioFromResolution, getVeo3Resolution } from "./veo3";
+import { generateWanVideo, getWanResolution } from "./wan";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Project endpoints
@@ -109,7 +109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const video = await storage.createVideo(data);
 
-      // Generate video with Veo3 in background
+      // Generate video with Wan in background
       (async () => {
         try {
           await storage.updateVideo(video.id, {
@@ -117,28 +117,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             progress: 10,
           });
 
-          const aspectRatio = getAspectRatioFromResolution(data.resolution);
-          const resolution = getVeo3Resolution(data.resolution);
+          const resolution = getWanResolution(data.resolution);
 
-          const result = await generateVeo3Video({
+          const result = await generateWanVideo({
             prompt: finalPrompt,
-            aspectRatio,
             resolution,
             duration: 8,
-            generateAudio: true,
           });
-
-          // Veo3 generates 2 versions - use the first one
-          const videoUrl = result.videos[0]?.url;
-          
-          if (!videoUrl) {
-            throw new Error("No video URL returned from Veo3");
-          }
 
           await storage.updateVideo(video.id, {
             status: "completed",
             progress: 100,
-            videoUrl,
+            videoUrl: result.videoUrl,
             duration: result.duration,
           });
         } catch (error: any) {
