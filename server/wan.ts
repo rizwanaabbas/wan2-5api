@@ -1,4 +1,5 @@
 const DASHSCOPE_API_URL = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis";
+const DASHSCOPE_TASK_URL = "https://dashscope-intl.aliyuncs.com/api/v1/tasks";
 
 if (!process.env.DASHSCOPE_API_KEY) {
   console.warn("DASHSCOPE_API_KEY not set. Video generation will fail.");
@@ -27,7 +28,7 @@ async function pollTaskStatus(taskId: string): Promise<WanGenerationResult> {
   let attempts = 0;
 
   while (attempts < maxAttempts) {
-    const response = await fetch(`${DASHSCOPE_API_URL}/${taskId}`, {
+    const response = await fetch(`${DASHSCOPE_TASK_URL}/${taskId}`, {
       method: "GET",
       headers: {
         "Authorization": `Bearer ${process.env.DASHSCOPE_API_KEY}`,
