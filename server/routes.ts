@@ -119,13 +119,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           const size = getWanSize(data.resolution);
 
-          const result = await generateWanVideo({
-            prompt: finalPrompt,
-            size,
-            duration: 10,
-            promptExtend: true,
-            audio: true,
-          });
+          // Track last updated progress to avoid excessive DB writes
+          let lastUpdatedProgress = 10;
+
+          const result = await generateWanVideo(
+            {
+              prompt: finalPrompt,
+              size,
+              duration: 10,
+              promptExtend: true,
+              audio: true,
+            },
+            async (progress: number) => {
+              // Only update DB if progress increased by at least 5%
+              if (progress - lastUpdatedProgress >= 5 || progress === 100) {
+                await storage.updateVideo(video.id, { progress });
+                lastUpdatedProgress = progress;
+                console.log(`Video ${video.id} progress: ${progress}%`);
+              }
+            }
+          );
 
           await storage.updateVideo(video.id, {
             status: "completed",
@@ -209,13 +222,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           const size = getWanSize(video.resolution);
 
-          const result = await generateWanVideo({
-            prompt: finalPrompt,
-            size,
-            duration: 10,
-            promptExtend: true,
-            audio: true,
-          });
+          // Track last updated progress to avoid excessive DB writes
+          let lastUpdatedProgress = 10;
+
+          const result = await generateWanVideo(
+            {
+              prompt: finalPrompt,
+              size,
+              duration: 10,
+              promptExtend: true,
+              audio: true,
+            },
+            async (progress: number) => {
+              // Only update DB if progress increased by at least 5%
+              if (progress - lastUpdatedProgress >= 5 || progress === 100) {
+                await storage.updateVideo(req.params.id, { progress });
+                lastUpdatedProgress = progress;
+                console.log(`Video ${req.params.id} progress: ${progress}%`);
+              }
+            }
+          );
 
           await storage.updateVideo(req.params.id, {
             status: "completed",

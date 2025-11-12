@@ -168,7 +168,13 @@ Preferred communication style: Simple, everyday language.
 - Created `DbStorage` implementation for persistent data storage
 - Database actively used for all project and video operations
 
-**Bug Fixes**
+**Bug Fixes (November 12, 2025)**
+- Fixed resolution selector buttons submitting form: Added `type="button"` to all resolution buttons to prevent accidental form submission
+- Fixed video progress stuck at 10%: 
+  - Connected polling progress callback to database updates
+  - Implemented throttled progress updates (5% increments) during Wan API polling
+  - Added comprehensive logging and error handling for progress tracking
+  - Progress now updates from 10% → 15% → 20% → ... → 90% → 100%
 - Fixed mutation response parsing in `App.tsx` to correctly extract JSON from API responses
 - Resolved navigation issues after project creation
 - Fixed TypeScript type compatibility in storage implementations

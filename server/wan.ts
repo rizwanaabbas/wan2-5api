@@ -19,7 +19,10 @@ export interface WanGenerationResult {
   taskId: string;
 }
 
-async function pollTaskStatus(taskId: string): Promise<WanGenerationResult> {
+async function pollTaskStatus(
+  taskId: string,
+  onProgress?: (progress: number) => void
+): Promise<WanGenerationResult> {
   if (!process.env.DASHSCOPE_API_KEY) {
     throw new Error("DASHSCOPE_API_KEY not configured.");
   }
@@ -28,39 +31,72 @@ async function pollTaskStatus(taskId: string): Promise<WanGenerationResult> {
   let attempts = 0;
 
   while (attempts < maxAttempts) {
-    const response = await fetch(`${DASHSCOPE_TASK_URL}/${taskId}`, {
-      method: "GET",
-      headers: {
-        "Authorization": `Bearer ${process.env.DASHSCOPE_API_KEY}`,
-      },
-    });
+    try {
+      const response = await fetch(`${DASHSCOPE_TASK_URL}/${taskId}`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${process.env.DASHSCOPE_API_KEY}`,
+        },
+      });
 
-    if (!response.ok) {
-      throw new Error(`Failed to check task status: ${response.statusText}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Task status check failed: ${response.statusText}`, errorText);
+        throw new Error(`Failed to check task status: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log(`Task ${taskId} status:`, result.output?.task_status, `Attempt: ${attempts + 1}/${maxAttempts}`);
+      
+      if (result.output?.task_status === "SUCCEEDED") {
+        if (onProgress) {
+          try {
+            await onProgress(100);
+          } catch (err) {
+            console.error("Failed to update progress to 100%:", err);
+          }
+        }
+        return {
+          videoUrl: result.output.video_url,
+          duration: result.output.duration || 8,
+          taskId,
+        };
+      } else if (result.output?.task_status === "FAILED") {
+        const errorMsg = result.output.message || result.output.code || "Unknown error";
+        console.error(`Video generation failed:`, errorMsg);
+        throw new Error(`Video generation failed: ${errorMsg}`);
+      }
+
+      // Update progress based on attempts (10% baseline + up to 80% based on progress)
+      const estimatedProgress = Math.min(90, 10 + Math.floor((attempts / maxAttempts) * 80));
+      if (onProgress) {
+        try {
+          await onProgress(estimatedProgress);
+        } catch (err) {
+          console.error(`Failed to update progress to ${estimatedProgress}%:`, err);
+        }
+      }
+
+      // Wait 10 seconds before next poll
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      attempts++;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("Video generation failed")) {
+        throw error;
+      }
+      console.error(`Polling error on attempt ${attempts + 1}:`, error);
+      // Continue polling on temporary errors
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      attempts++;
     }
-
-    const result = await response.json();
-    
-    if (result.output?.task_status === "SUCCEEDED") {
-      return {
-        videoUrl: result.output.video_url,
-        duration: result.output.duration || 8,
-        taskId,
-      };
-    } else if (result.output?.task_status === "FAILED") {
-      throw new Error(`Video generation failed: ${result.output.message || "Unknown error"}`);
-    }
-
-    // Wait 10 seconds before next poll
-    await new Promise(resolve => setTimeout(resolve, 10000));
-    attempts++;
   }
 
-  throw new Error("Video generation timed out");
+  throw new Error("Video generation timed out after 10 minutes");
 }
 
 export async function generateWanVideo(
-  input: WanGenerationInput
+  input: WanGenerationInput,
+  onProgress?: (progress: number) => void
 ): Promise<WanGenerationResult> {
   if (!process.env.DASHSCOPE_API_KEY) {
     throw new Error("DASHSCOPE_API_KEY not configured. Please add your DashScope API key.");
@@ -91,19 +127,22 @@ export async function generateWanVideo(
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error("Video generation submission failed:", errorText);
       throw new Error(`Failed to submit video generation: ${response.statusText} - ${errorText}`);
     }
 
     const result = await response.json();
     
     if (!result.output?.task_id) {
+      console.error("No task ID in response:", result);
       throw new Error("No task ID returned from API");
     }
 
     console.log(`Wan video generation task submitted: ${result.output.task_id}`);
+    console.log(`Request: model=${input.size}, duration=${input.duration}s, prompt="${input.prompt.substring(0, 50)}..."`);
 
     // Poll for completion
-    return await pollTaskStatus(result.output.task_id);
+    return await pollTaskStatus(result.output.task_id, onProgress);
   } catch (error) {
     console.error("Wan generation error:", error);
     throw new Error(`Failed to generate video with Wan: ${error instanceof Error ? error.message : "Unknown error"}`);

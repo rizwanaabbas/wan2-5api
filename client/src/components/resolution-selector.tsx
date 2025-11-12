@@ -33,6 +33,7 @@ export function ResolutionSelector({
             {resolutions480p.map((res) => (
               <Button
                 key={res.value}
+                type="button"
                 variant={selectedResolution === res.value ? "default" : "outline"}
                 className="flex flex-col h-auto py-3 gap-1"
                 onClick={() => onResolutionChange(res.value)}
@@ -54,6 +55,7 @@ export function ResolutionSelector({
             {resolutions720p.map((res) => (
               <Button
                 key={res.value}
+                type="button"
                 variant={selectedResolution === res.value ? "default" : "outline"}
                 className="flex flex-col h-auto py-3 gap-1"
                 onClick={() => onResolutionChange(res.value)}
@@ -75,6 +77,7 @@ export function ResolutionSelector({
             {resolutions1080p.map((res) => (
               <Button
                 key={res.value}
+                type="button"
                 variant={selectedResolution === res.value ? "default" : "outline"}
                 className="flex flex-col h-auto py-3 gap-1"
                 onClick={() => onResolutionChange(res.value)}
