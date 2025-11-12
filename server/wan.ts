@@ -1,4 +1,4 @@
-const DASHSCOPE_API_URL = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis";
+const DASHSCOPE_API_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis";
 
 if (!process.env.DASHSCOPE_API_KEY) {
   console.warn("DASHSCOPE_API_KEY not set. Video generation will fail.");
@@ -6,8 +6,10 @@ if (!process.env.DASHSCOPE_API_KEY) {
 
 export interface WanGenerationInput {
   prompt: string;
-  resolution?: "720P" | "1080P";
+  size?: string;
   duration?: number;
+  promptExtend?: boolean;
+  audio?: boolean;
 }
 
 export interface WanGenerationResult {
@@ -78,7 +80,10 @@ export async function generateWanVideo(
           prompt: input.prompt,
         },
         parameters: {
-          resolution: input.resolution || "720P",
+          size: input.size || "832*480",
+          prompt_extend: input.promptExtend !== false,
+          duration: input.duration || 10,
+          audio: input.audio !== false,
         },
       }),
     });
@@ -104,13 +109,23 @@ export async function generateWanVideo(
   }
 }
 
-export function getWanResolution(resolution: string): "720P" | "1080P" {
-  // Parse resolution like "1280x720", "720x1280", "1920x1080"
-  const [width, height] = resolution.split("x").map(Number);
-  const maxDimension = Math.max(width, height);
+export function getWanSize(resolution: string): string {
+  // Parse resolution like "1280x720" and convert to "1280*720" format for Wan API
+  const parts = resolution.split("x");
   
-  if (maxDimension >= 1920) {
-    return "1080P";
+  if (parts.length !== 2) {
+    console.warn(`Invalid resolution format: ${resolution}, using default 832*480`);
+    return "832*480";
   }
-  return "720P";
+  
+  const width = Number(parts[0]);
+  const height = Number(parts[1]);
+  
+  if (isNaN(width) || isNaN(height) || width <= 0 || height <= 0) {
+    console.warn(`Invalid resolution values: ${resolution}, using default 832*480`);
+    return "832*480";
+  }
+  
+  // Wan API uses asterisk format: width*height
+  return `${width}*${height}`;
 }

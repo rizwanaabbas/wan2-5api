@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { insertProjectSchema, insertVideoSchema } from "@shared/schema";
-import { generateWanVideo, getWanResolution } from "./wan";
+import { generateWanVideo, getWanSize } from "./wan";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Project endpoints
@@ -117,12 +117,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             progress: 10,
           });
 
-          const resolution = getWanResolution(data.resolution);
+          const size = getWanSize(data.resolution);
 
           const result = await generateWanVideo({
             prompt: finalPrompt,
-            resolution,
-            duration: 8,
+            size,
+            duration: 10,
+            promptExtend: true,
+            audio: true,
           });
 
           await storage.updateVideo(video.id, {
