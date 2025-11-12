@@ -129,8 +129,9 @@ export default function GenerateVideo() {
           throw new Error("Failed to upload image");
         }
 
+        // Use the full uploadURL without query parameters for Wan API
         const url = new URL(uploadURL);
-        sourceImageUrl = url.pathname;
+        sourceImageUrl = `${url.origin}${url.pathname}`;
       } catch (error: any) {
         uploadError = error;
       } finally {
@@ -174,8 +175,9 @@ export default function GenerateVideo() {
           throw new Error("Failed to upload audio");
         }
 
+        // Use the full uploadURL without query parameters for Wan API
         const url = new URL(uploadURL);
-        audioUrl = url.pathname;
+        audioUrl = `${url.origin}${url.pathname}`;
       } catch (error: any) {
         uploadError = error;
       } finally {
