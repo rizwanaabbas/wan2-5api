@@ -1,7 +1,7 @@
 import { Video } from "@shared/schema";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Play, Download, Clock, Maximize2, Loader2, AlertCircle } from "lucide-react";
+import { Play, Download, Clock, Maximize2, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 
@@ -9,9 +9,10 @@ interface VideoCardProps {
   video: Video;
   onPlay: (video: Video) => void;
   onDownload: (video: Video) => void;
+  onEdit?: (video: Video) => void;
 }
 
-export function VideoCard({ video, onPlay, onDownload }: VideoCardProps) {
+export function VideoCard({ video, onPlay, onDownload, onEdit }: VideoCardProps) {
   const getStatusBadge = () => {
     switch (video.status) {
       case "processing":
@@ -99,7 +100,7 @@ export function VideoCard({ video, onPlay, onDownload }: VideoCardProps) {
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <div className="flex items-center gap-1.5">
             <Badge variant="outline" className="font-mono text-xs">
-              {video.model === "ovi" ? "Ovi" : "Wan2.1"}
+              Wan 2.5
             </Badge>
           </div>
           <div className="flex items-center gap-1.5">
@@ -118,17 +119,30 @@ export function VideoCard({ video, onPlay, onDownload }: VideoCardProps) {
           <span className="text-xs text-muted-foreground">
             {format(new Date(video.createdAt), "MMM d, yyyy")}
           </span>
-          {video.status === "completed" && video.videoUrl && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => onDownload(video)}
-              data-testid={`button-download-${video.id}`}
-            >
-              <Download className="w-3.5 h-3.5 mr-1.5" />
-              Download
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {onEdit && (video.status === "completed" || video.status === "failed") && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onEdit(video)}
+                data-testid={`button-edit-${video.id}`}
+              >
+                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                Edit & Regenerate
+              </Button>
+            )}
+            {video.status === "completed" && video.videoUrl && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onDownload(video)}
+                data-testid={`button-download-${video.id}`}
+              >
+                <Download className="w-3.5 h-3.5 mr-1.5" />
+                Download
+              </Button>
+            )}
+          </div>
         </div>
 
         {video.status === "completed" && !video.videoUrl && (

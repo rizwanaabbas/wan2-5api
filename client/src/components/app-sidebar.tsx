@@ -145,9 +145,9 @@ export function AppSidebar({
         <div className="text-xs text-muted-foreground">
           <div className="flex items-center gap-2 mb-1">
             <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-            <span className="font-mono">2 AI Models Available</span>
+            <span className="font-mono">AI Video Generation</span>
           </div>
-          <p className="text-[10px] opacity-60">Ovi • Wan2.1</p>
+          <p className="text-[10px] opacity-60">Powered by Alibaba Cloud Wan 2.5</p>
         </div>
       </SidebarFooter>
     </Sidebar>

@@ -166,6 +166,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/videos/:id/regenerate", async (req, res) => {
+    try {
+      const video = await storage.getVideo(req.params.id);
+      if (!video) {
+        return res.status(404).json({ error: "Video not found" });
+      }
+
+      const { prompt } = req.body;
+      if (!prompt || typeof prompt !== "string") {
+        return res.status(400).json({ error: "Prompt is required" });
+      }
+
+      // Get project to access global prompt
+      const project = await storage.getProject(video.projectId);
+      if (!project) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      // Combine global prompt with new video prompt
+      let finalPrompt = prompt;
+      if (project.globalPrompt?.trim()) {
+        finalPrompt = `${project.globalPrompt.trim()}\n\n${prompt}`;
+      }
+
+      // Reset video status and update prompt
+      await storage.updateVideo(req.params.id, {
+        prompt,
+        status: "pending",
+        progress: 0,
+        videoUrl: null,
+        errorMessage: null,
+      });
+
+      // Regenerate video with Wan in background
+      (async () => {
+        try {
+          await storage.updateVideo(req.params.id, {
+            status: "processing",
+            progress: 10,
+          });
+
+          const size = getWanSize(video.resolution);
+
+          const result = await generateWanVideo({
+            prompt: finalPrompt,
+            size,
+            duration: 10,
+            promptExtend: true,
+            audio: true,
+          });
+
+          await storage.updateVideo(req.params.id, {
+            status: "completed",
+            progress: 100,
+            videoUrl: result.videoUrl,
+            duration: result.duration,
+          });
+        } catch (error: any) {
+          console.error("Video regeneration error:", error);
+          await storage.updateVideo(req.params.id, {
+            status: "failed",
+            progress: 0,
+            errorMessage: error.message || "Failed to regenerate video",
+          });
+        }
+      })();
+
+      const updatedVideo = await storage.getVideo(req.params.id);
+      res.json(updatedVideo);
+    } catch (error) {
+      console.error("Error regenerating video:", error);
+      res.status(500).json({ error: "Failed to regenerate video" });
+    }
+  });
+
   app.delete("/api/videos/:id", async (req, res) => {
     try {
       const deleted = await storage.deleteVideo(req.params.id);

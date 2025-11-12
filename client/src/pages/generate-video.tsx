@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Project, ModelType, GenerationType, InsertVideo } from "@shared/schema";
-import { ModelSelector } from "@/components/model-selector";
 import { ResolutionSelector } from "@/components/resolution-selector";
 import { PromptBuilder } from "@/components/prompt-builder";
 import { ImageUploader } from "@/components/image-uploader";
@@ -21,11 +20,11 @@ export default function GenerateVideo() {
   const projectId = params?.id;
   const { toast } = useToast();
 
-  const [model, setModel] = useState<ModelType>("ovi");
+  const [model] = useState<ModelType>("wan2.5");
   const [generationType, setGenerationType] = useState<GenerationType>("text-to-video");
   const [videoName, setVideoName] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [resolution, setResolution] = useState("720x720");
+  const [resolution, setResolution] = useState("1920x1080");
   const [sourceImage, setSourceImage] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -163,8 +162,6 @@ export default function GenerateVideo() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-8">
-          <ModelSelector selectedModel={model} onModelChange={setModel} />
-
           <Card className="p-6">
             <div className="space-y-6">
               <div>
@@ -198,7 +195,7 @@ export default function GenerateVideo() {
                   <PromptBuilder
                     value={prompt}
                     onChange={setPrompt}
-                    showHelpers={model === "ovi"}
+                    showHelpers={false}
                   />
                 </TabsContent>
 
@@ -213,13 +210,12 @@ export default function GenerateVideo() {
                   <PromptBuilder
                     value={prompt}
                     onChange={setPrompt}
-                    showHelpers={model === "ovi"}
+                    showHelpers={false}
                   />
                 </TabsContent>
               </Tabs>
 
               <ResolutionSelector
-                model={model}
                 selectedResolution={resolution}
                 onResolutionChange={setResolution}
               />

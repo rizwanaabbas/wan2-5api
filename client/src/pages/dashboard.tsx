@@ -1,18 +1,22 @@
 import { useState } from "react";
 import { useRoute, Link } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Video, Project } from "@shared/schema";
 import { VideoCard } from "@/components/video-card";
 import { VideoPlayer } from "@/components/video-player";
+import { EditVideoDialog } from "@/components/edit-video-dialog";
 import { Button } from "@/components/ui/button";
 import { Plus, Video as VideoIcon, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export default function Dashboard() {
   const [, params] = useRoute("/project/:id");
   const projectId = params?.id;
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [playerOpen, setPlayerOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [videoToEdit, setVideoToEdit] = useState<Video | null>(null);
   const { toast } = useToast();
 
   const { data: project, isLoading: projectLoading } = useQuery<Project>({
@@ -57,6 +61,40 @@ export default function Dashboard() {
         description: "Failed to download video",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleEdit = (video: Video) => {
+    setVideoToEdit(video);
+    setEditDialogOpen(true);
+  };
+
+  const regenerateVideoMutation = useMutation({
+    mutationFn: async ({ videoId, prompt }: { videoId: string; prompt: string }) => {
+      const res = await apiRequest("POST", `/api/videos/${videoId}/regenerate`, { prompt });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/videos", projectId] });
+      setEditDialogOpen(false);
+      setVideoToEdit(null);
+      toast({
+        title: "Video regeneration started",
+        description: "Your video is being regenerated with the new prompt",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to regenerate video",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleRegenerateSubmit = (prompt: string) => {
+    if (videoToEdit) {
+      regenerateVideoMutation.mutate({ videoId: videoToEdit.id, prompt });
     }
   };
 
@@ -124,7 +162,7 @@ export default function Dashboard() {
               </div>
               <h2 className="text-xl font-semibold mb-2">No videos yet</h2>
               <p className="text-muted-foreground mb-6">
-                Start creating amazing AI-generated videos with Ovi or Wan2.1 models
+                Start creating amazing AI-generated videos with Alibaba Cloud Wan 2.5
               </p>
               <Link href={`/project/${projectId}/generate`}>
                 <Button data-testid="button-generate-first-video">
@@ -142,6 +180,7 @@ export default function Dashboard() {
                 video={video}
                 onPlay={handlePlay}
                 onDownload={handleDownload}
+                onEdit={handleEdit}
               />
             ))}
           </div>
@@ -156,6 +195,17 @@ export default function Dashboard() {
           setSelectedVideo(null);
         }}
         onDownload={handleDownload}
+      />
+
+      <EditVideoDialog
+        open={editDialogOpen}
+        onClose={() => {
+          setEditDialogOpen(false);
+          setVideoToEdit(null);
+        }}
+        onSubmit={handleRegenerateSubmit}
+        video={videoToEdit}
+        isPending={regenerateVideoMutation.isPending}
       />
     </div>
   );

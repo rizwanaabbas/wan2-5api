@@ -2,7 +2,7 @@
 
 ## Overview
 
-VideoForge is an AI video generation platform that creates actual videos using Alibaba Cloud's Wan 2.5 model via the DashScope API. The platform supports text-to-video generation workflows organized within a project-based structure with global prompt capabilities.
+VideoForge is an AI video generation platform that creates actual videos using Alibaba Cloud's Wan 2.5 model via the DashScope API. The platform exclusively uses the Wan 2.5 model for all video generation and supports text-to-video generation workflows organized within a project-based structure with global prompt capabilities.
 
 The application provides a modern workspace interface for managing video generation projects, tracking generation progress in real-time, and organizing generated content. Users can create multiple projects with optional global prompts that automatically prepend to all video prompts within that project, generate videos with various resolutions and configurations, and download their completed videos.
 
@@ -11,6 +11,7 @@ The application provides a modern workspace interface for managing video generat
 - Project-based organization with global prompts
 - Configurable video size, duration, and audio generation
 - Real-time progress tracking during video generation
+- Edit and regenerate videos with modified prompts
 - PostgreSQL database for persistent storage
 
 ## User Preferences
@@ -134,7 +135,22 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes (November 2025)
 
-**Wan API Integration (Latest)**
+**Wan Resolution Updates (Latest)**
+- Updated WAN_RESOLUTIONS with all 13 Wan API supported sizes
+- Added platform-specific labels: YouTube, YouTube HD, YouTube FHD, Shorts, Reels, Stories
+- Organized resolutions into three tiers: 480p (Standard), 720p (HD), 1080p (Full HD)
+- Enhanced ResolutionSelector UI with grouped sections and tier badges
+- Supported formats: 16:9, 9:16, 1:1, 4:3, 3:4 aspect ratios
+
+**Edit & Regenerate Videos**
+- Added `/api/videos/:id/regenerate` endpoint to regenerate existing videos with new prompts
+- Created `EditVideoDialog` component for modifying video prompts
+- Updated `VideoCard` with "Edit & Regenerate" button for completed/failed videos
+- Regenerated videos automatically reset to pending, then processing, with status tracking
+- Global prompts are automatically prepended during regeneration
+- Added pending state management to prevent duplicate submissions
+
+**Wan API Integration**
 - Migrated from Google Veo3 to Alibaba Cloud Wan 2.5 API via DashScope
 - Created `server/wan.ts` service for Wan API integration
 - Implemented async task polling for video generation completion

@@ -15,7 +15,7 @@ export const videos = pgTable("videos", {
   projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: 'cascade' }),
   name: text("name").notNull(),
   prompt: text("prompt").notNull(),
-  model: text("model").notNull(), // "ovi" or "wan2.1"
+  model: text("model").notNull(), // "wan2.5" (Alibaba Cloud Wan 2.5)
   generationType: text("generation_type").notNull(), // "text-to-video" or "image-to-video"
   resolution: text("resolution").notNull(), // e.g., "720x720", "1280x704"
   status: text("status").notNull().default("pending"), // "pending", "processing", "completed", "failed"
@@ -49,7 +49,7 @@ export type Project = typeof projects.$inferSelect;
 export type InsertVideo = z.infer<typeof insertVideoSchema>;
 export type Video = typeof videos.$inferSelect;
 
-export type ModelType = "ovi" | "wan2.1";
+export type ModelType = "wan2.5";
 export type GenerationType = "text-to-video" | "image-to-video";
 export type VideoStatus = "pending" | "processing" | "completed" | "failed";
 
@@ -61,17 +61,23 @@ export interface ResolutionOption {
   aspectRatio: string;
 }
 
-export const OVI_RESOLUTIONS: ResolutionOption[] = [
-  { label: "720×720 (1:1)", value: "720x720", width: 720, height: 720, aspectRatio: "1:1" },
-  { label: "1280×704 (16:9)", value: "1280x704", width: 1280, height: 704, aspectRatio: "16:9" },
-  { label: "704×1280 (9:16)", value: "704x1280", width: 704, height: 1280, aspectRatio: "9:16" },
-  { label: "1344×704 (Widescreen)", value: "1344x704", width: 1344, height: 704, aspectRatio: "Wide" },
-  { label: "1504×608 (Ultra Wide)", value: "1504x608", width: 1504, height: 608, aspectRatio: "Ultra" },
-];
-
-export const WAN_RESOLUTIONS: ResolutionOption[] = [
-  { label: "480p (854×480)", value: "854x480", width: 854, height: 480, aspectRatio: "16:9" },
-  { label: "720p (1280×720)", value: "1280x720", width: 1280, height: 720, aspectRatio: "16:9" },
-  { label: "1080p (1920×1080)", value: "1920x1080", width: 1920, height: 1080, aspectRatio: "16:9" },
-  { label: "720p Portrait (720×1280)", value: "720x1280", width: 720, height: 1280, aspectRatio: "9:16" },
+export const RESOLUTIONS: ResolutionOption[] = [
+  // 480p options
+  { label: "832×480 (YouTube)", value: "832x480", width: 832, height: 480, aspectRatio: "16:9" },
+  { label: "480×832 (Shorts)", value: "480x832", width: 480, height: 832, aspectRatio: "9:16" },
+  { label: "624×624 (Square)", value: "624x624", width: 624, height: 624, aspectRatio: "1:1" },
+  
+  // 720p options
+  { label: "1280×720 (YouTube HD)", value: "1280x720", width: 1280, height: 720, aspectRatio: "16:9" },
+  { label: "720×1280 (Reels)", value: "720x1280", width: 720, height: 1280, aspectRatio: "9:16" },
+  { label: "960×960 (Square)", value: "960x960", width: 960, height: 960, aspectRatio: "1:1" },
+  { label: "1088×832 (4:3)", value: "1088x832", width: 1088, height: 832, aspectRatio: "4:3" },
+  { label: "832×1088 (3:4)", value: "832x1088", width: 832, height: 1088, aspectRatio: "3:4" },
+  
+  // 1080p options
+  { label: "1920×1080 (YouTube FHD)", value: "1920x1080", width: 1920, height: 1080, aspectRatio: "16:9" },
+  { label: "1080×1920 (Stories)", value: "1080x1920", width: 1080, height: 1920, aspectRatio: "9:16" },
+  { label: "1440×1440 (Square)", value: "1440x1440", width: 1440, height: 1440, aspectRatio: "1:1" },
+  { label: "1632×1248 (4:3)", value: "1632x1248", width: 1632, height: 1248, aspectRatio: "4:3" },
+  { label: "1248×1632 (3:4)", value: "1248x1632", width: 1248, height: 1632, aspectRatio: "3:4" },
 ];
