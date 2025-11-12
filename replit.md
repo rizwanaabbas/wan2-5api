@@ -207,6 +207,29 @@ Preferred communication style: Simple, everyday language.
   - Displays model, generation type, resolution, audio mode, and negative prompt
   - Clear indication that only prompt can be modified during regeneration
 
+**Video Thumbnails & Task ID Management (November 12, 2025 - Latest)**
+- Enhanced Wan API integration to capture video thumbnails:
+  - Updated `WanGenerationResult` interface to include `thumbnailUrl` field
+  - Server now captures thumbnail URLs from Wan API responses (`thumbnail_url` or `cover_url` fields)
+  - Video cards display generated thumbnails for completed videos
+  - Thumbnails stored in database and retrieved with video data
+- Implemented Task ID copy functionality:
+  - Added interactive popover UI for task ID display
+  - Click truncated task ID badge to view full task ID
+  - Copy button with visual feedback (check icon on success)
+  - Robust error handling with feature detection for clipboard API
+  - Optimistic UI updates with toast notifications for success/failure
+  - Accessible with proper ARIA labels and test IDs
+- Created usage statistics and billing dashboard:
+  - Four statistics cards showing: Total Videos, Completed, Processing, Total Duration
+  - Real-time success rate calculation based on completed vs total videos
+  - Duration displayed in both seconds and minutes
+  - Animated loader icon for processing videos
+  - Billing information card with gradient background
+  - Direct link to Alibaba Cloud console for detailed billing information
+  - Note explaining DashScope API lacks programmatic billing endpoint
+  - Statistics cards only shown when project has videos
+
 **Bug Fixes (November 12, 2025)**
 - Fixed resolution selector buttons submitting form: Added `type="button"` to all resolution buttons to prevent accidental form submission
 - Fixed video progress stuck at 10%: 
