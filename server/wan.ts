@@ -1,4 +1,4 @@
-const DASHSCOPE_API_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis";
+const DASHSCOPE_API_URL = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis";
 
 if (!process.env.DASHSCOPE_API_KEY) {
   console.warn("DASHSCOPE_API_KEY not set. Video generation will fail.");
