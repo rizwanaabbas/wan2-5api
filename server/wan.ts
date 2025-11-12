@@ -21,6 +21,7 @@ export interface WanGenerationInput {
 
 export interface WanGenerationResult {
   videoUrl: string;
+  thumbnailUrl?: string;
   duration: number;
   taskId: string;
 }
@@ -62,8 +63,13 @@ async function pollTaskStatus(
             console.error("Failed to update progress to 100%:", err);
           }
         }
+        
+        // Log the full output to see what's available
+        console.log("Wan API success response:", JSON.stringify(result.output, null, 2));
+        
         return {
           videoUrl: result.output.video_url,
+          thumbnailUrl: result.output.thumbnail_url || result.output.cover_url,
           duration: result.output.duration || 8,
           taskId,
         };

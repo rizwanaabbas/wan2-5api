@@ -1,9 +1,12 @@
 import { Video } from "@shared/schema";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Play, Download, Clock, Maximize2, Loader2, AlertCircle, RefreshCw, Image as ImageIcon, Video as VideoIcon, Volume2, VolumeX, Music } from "lucide-react";
+import { Play, Download, Clock, Maximize2, Loader2, AlertCircle, RefreshCw, Image as ImageIcon, Video as VideoIcon, Volume2, VolumeX, Music, Copy, Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
+import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 interface VideoCardProps {
   video: Video;
@@ -13,6 +16,46 @@ interface VideoCardProps {
 }
 
 export function VideoCard({ video, onPlay, onDownload, onEdit }: VideoCardProps) {
+  const [copiedTaskId, setCopiedTaskId] = useState(false);
+  const { toast } = useToast();
+
+  const copyTaskId = async () => {
+    if (!video.taskId) return;
+
+    // Feature detection for clipboard API
+    if (!navigator.clipboard?.writeText) {
+      toast({
+        title: "Copy not supported",
+        description: "Your browser doesn't support clipboard copying",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Optimistically show success state
+      setCopiedTaskId(true);
+      
+      await navigator.clipboard.writeText(video.taskId);
+      
+      toast({
+        title: "Copied!",
+        description: "Task ID copied to clipboard",
+      });
+      
+      setTimeout(() => setCopiedTaskId(false), 2000);
+    } catch (error) {
+      // Revert success state on error
+      setCopiedTaskId(false);
+      
+      toast({
+        title: "Copy failed",
+        description: "Failed to copy task ID to clipboard",
+        variant: "destructive",
+      });
+    }
+  };
+
   const getStatusBadge = () => {
     switch (video.status) {
       case "processing":
@@ -153,11 +196,39 @@ export function VideoCard({ video, onPlay, onDownload, onEdit }: VideoCardProps)
             </div>
           )}
           {video.taskId && (
-            <div className="flex items-center gap-1.5" title={`Task ID: ${video.taskId}`}>
-              <Badge variant="secondary" className="font-mono text-xs">
-                {video.taskId.slice(0, 8)}...
-              </Badge>
-            </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
+                  <Badge variant="secondary" className="font-mono text-xs cursor-pointer">
+                    {video.taskId.slice(0, 8)}...
+                  </Badge>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-3" align="start">
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">Task ID</p>
+                  <div className="flex items-center gap-2">
+                    <code className="text-xs font-mono bg-muted px-2 py-1 rounded">
+                      {video.taskId}
+                    </code>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={copyTaskId}
+                      className="h-7 w-7 p-0"
+                      data-testid={`button-copy-task-id-${video.id}`}
+                      aria-label={copiedTaskId ? "Copied" : "Copy task ID"}
+                    >
+                      {copiedTaskId ? (
+                        <Check className="w-3.5 h-3.5 text-green-600" data-testid={`icon-copied-${video.id}`} />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" data-testid={`icon-copy-${video.id}`} />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
           )}
         </div>
 

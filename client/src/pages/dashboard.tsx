@@ -6,7 +6,8 @@ import { VideoCard } from "@/components/video-card";
 import { VideoPlayer } from "@/components/video-player";
 import { EditVideoDialog } from "@/components/edit-video-dialog";
 import { Button } from "@/components/ui/button";
-import { Plus, Video as VideoIcon, Loader2 } from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Plus, Video as VideoIcon, Loader2, BarChart3, Clock, CheckCircle, XCircle, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -134,6 +135,17 @@ export default function Dashboard() {
     );
   }
 
+  // Calculate statistics
+  const stats = {
+    total: videos.length,
+    completed: videos.filter((v) => v.status === "completed").length,
+    processing: videos.filter((v) => v.status === "processing" || v.status === "pending").length,
+    failed: videos.filter((v) => v.status === "failed").length,
+    totalDuration: videos
+      .filter((v) => v.duration)
+      .reduce((sum, v) => sum + (v.duration || 0), 0),
+  };
+
   return (
     <div className="p-8">
       <div className="max-w-7xl mx-auto">
@@ -153,6 +165,102 @@ export default function Dashboard() {
             </Button>
           </Link>
         </div>
+
+        {/* Usage Statistics */}
+        {videos.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Videos</CardTitle>
+                <BarChart3 className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold" data-testid="stat-total-videos">{stats.total}</div>
+                <p className="text-xs text-muted-foreground mt-1">All generated videos</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Completed</CardTitle>
+                <CheckCircle className="h-4 w-4 text-green-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold" data-testid="stat-completed-videos">{stats.completed}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0}% success rate
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Processing</CardTitle>
+                <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold" data-testid="stat-processing-videos">{stats.processing}</div>
+                <p className="text-xs text-muted-foreground mt-1">Currently generating</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Duration</CardTitle>
+                <Clock className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold" data-testid="stat-total-duration">{stats.totalDuration}s</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {Math.round(stats.totalDuration / 60)} minutes of video
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Billing Information Card */}
+        {videos.length > 0 && (
+          <Card className="mb-8 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-blue-200 dark:border-blue-800">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5" />
+                Billing & Usage
+              </CardTitle>
+              <CardDescription>
+                View detailed billing information in your Alibaba Cloud console
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    For detailed billing, outstanding charges, and payment history, visit the Alibaba Cloud Model Studio console.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    DashScope API does not provide a programmatic billing endpoint
+                  </p>
+                </div>
+                <Button
+                  variant="default"
+                  asChild
+                  data-testid="button-view-billing"
+                >
+                  <a
+                    href="https://bailian.console.aliyun.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2"
+                  >
+                    View Billing Console
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
 
         {videos.length === 0 ? (
           <div className="flex items-center justify-center py-20">

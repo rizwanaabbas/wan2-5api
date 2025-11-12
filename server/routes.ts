@@ -57,6 +57,7 @@ async function startVideoGenerationJob(
       progress: 100,
       taskId: result.taskId,
       videoUrl: result.videoUrl,
+      thumbnailUrl: result.thumbnailUrl || null,
       duration: result.duration,
     });
   } catch (error: any) {
