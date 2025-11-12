@@ -190,11 +190,14 @@ export async function generateWanVideo(
       input.size ? `resolution=${input.size}` : null,
       input.duration ? `duration=${input.duration}s` : null,
       input.audioMode ? `audio=${input.audioMode}` : null,
+      input.audioUrl ? `audioUrl=${input.audioUrl}` : null,
       input.imageUrl ? `image=${input.imageUrl.substring(0, 30)}...` : null,
     ].filter(Boolean).join(", ");
 
     console.log(`Wan video generation task submitted: ${result.output.task_id}`);
     console.log(`Request: ${logDetails}, prompt="${input.prompt.substring(0, 50)}..."`);
+    console.log(`Full API input:`, JSON.stringify(apiInput, null, 2));
+    console.log(`Full API parameters:`, JSON.stringify(parameters, null, 2));
 
     // Poll for completion
     return await pollTaskStatus(result.output.task_id, onProgress);
