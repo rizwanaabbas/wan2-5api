@@ -16,6 +16,8 @@ async function startVideoGenerationJob(
     audioMode?: string;
     audioUrl?: string;
     imageUrl?: string;
+    firstKeyframeUrl?: string;
+    lastKeyframeUrl?: string;
     duration?: number;
   } = {}
 ) {
@@ -41,6 +43,8 @@ async function startVideoGenerationJob(
         audioMode: (options.audioMode as any) || "auto",
         audioUrl: options.audioUrl,
         imageUrl: options.imageUrl,
+        firstKeyframeUrl: options.firstKeyframeUrl,
+        lastKeyframeUrl: options.lastKeyframeUrl,
       },
       async (progress: number) => {
         // Only update DB if progress increased by at least 5%
@@ -97,6 +101,8 @@ async function recoverStuckVideos() {
           audioMode: video.audioMode || undefined,
           audioUrl: video.audioUrl || undefined,
           imageUrl: video.sourceImageUrl || undefined,
+          firstKeyframeUrl: video.firstKeyframeUrl || undefined,
+          lastKeyframeUrl: video.lastKeyframeUrl || undefined,
           duration: video.duration || undefined,
         }).catch(err => {
           console.error(`Failed to restart video ${video.id}:`, err);
@@ -212,6 +218,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (data.generationType === "image-to-video" && !data.sourceImageUrl) {
         return res.status(400).json({ error: "Source image URL is required for image-to-video generation" });
       }
+
+      // Validate keyframe-to-video requirements
+      if (data.generationType === "keyframe" && (!data.firstKeyframeUrl || !data.lastKeyframeUrl)) {
+        return res.status(400).json({ error: "Both first and last keyframe URLs are required for keyframe-to-video generation" });
+      }
       
       // Get project to access global prompt
       const project = await storage.getProject(data.projectId);
@@ -233,6 +244,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         audioMode: data.audioMode || undefined,
         audioUrl: data.audioUrl || undefined,
         imageUrl: data.sourceImageUrl || undefined,
+        firstKeyframeUrl: data.firstKeyframeUrl || undefined,
+        lastKeyframeUrl: data.lastKeyframeUrl || undefined,
         duration: 10,
       }).catch(err => {
         console.error(`Background job failed for video ${video.id}:`, err);

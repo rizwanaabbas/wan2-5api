@@ -6,7 +6,7 @@ if (!process.env.DASHSCOPE_API_KEY) {
 }
 
 export interface WanGenerationInput {
-  model: string; // "wan2.5-t2v-preview", "wan2.5-i2v-preview", "wan2.2-i2v-plus"
+  model: string; // "wan2.5-t2v-preview", "wan2.5-i2v-preview", "wan2.2-i2v-plus", etc.
   prompt: string;
   negativePrompt?: string;
   size?: string;
@@ -17,6 +17,9 @@ export interface WanGenerationInput {
   audioUrl?: string;
   // Image-to-video options
   imageUrl?: string;
+  // Keyframe-to-video options
+  firstKeyframeUrl?: string;
+  lastKeyframeUrl?: string;
 }
 
 export interface WanGenerationResult {
@@ -128,6 +131,12 @@ export async function generateWanVideo(
     // Add image URL for image-to-video models
     if (input.imageUrl) {
       apiInput.img_url = input.imageUrl;
+    }
+
+    // Add keyframe URLs for keyframe-to-video models
+    if (input.firstKeyframeUrl && input.lastKeyframeUrl) {
+      apiInput.first_keyframe_url = input.firstKeyframeUrl;
+      apiInput.last_keyframe_url = input.lastKeyframeUrl;
     }
 
     // Add custom audio URL if provided

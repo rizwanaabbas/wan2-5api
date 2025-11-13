@@ -16,15 +16,17 @@ export const videos = pgTable("videos", {
   name: text("name").notNull(),
   prompt: text("prompt").notNull(),
   negativePrompt: text("negative_prompt"), // Optional negative prompt
-  model: text("model").notNull(), // "wan2.5-t2v-preview", "wan2.5-i2v-preview", "wan2.2-i2v-plus"
-  generationType: text("generation_type").notNull(), // "text-to-video" or "image-to-video"
+  model: text("model").notNull(), // All Wan models supported
+  generationType: text("generation_type").notNull(), // "text-to-video", "image-to-video", "text-to-image", "image-to-image", "animation", "keyframe"
   resolution: text("resolution").notNull(), // e.g., "720x720", "1280x704"
   status: text("status").notNull().default("pending"), // "pending", "processing", "completed", "failed"
   progress: integer("progress").default(0), // 0-100
   taskId: varchar("task_id"), // Wan API task ID for tracking
-  videoUrl: text("video_url"),
+  videoUrl: text("video_url"), // Output video URL (or image URL for T2I/I2I models)
   thumbnailUrl: text("thumbnail_url"),
-  sourceImageUrl: text("source_image_url"), // For image-to-video
+  sourceImageUrl: text("source_image_url"), // For image-to-video, image-to-image, animation
+  firstKeyframeUrl: text("first_keyframe_url"), // For keyframe-to-video
+  lastKeyframeUrl: text("last_keyframe_url"), // For keyframe-to-video
   audioMode: varchar("audio_mode").default("auto"), // "auto", "custom", "silent"
   audioUrl: text("audio_url"), // For custom audio
   duration: integer("duration"), // in seconds
@@ -54,8 +56,22 @@ export type Project = typeof projects.$inferSelect;
 export type InsertVideo = z.infer<typeof insertVideoSchema>;
 export type Video = typeof videos.$inferSelect;
 
-export type ModelType = "wan2.5-t2v-preview" | "wan2.5-i2v-preview" | "wan2.2-i2v-plus";
-export type GenerationType = "text-to-video" | "image-to-video";
+export type ModelType = 
+  | "wan2.2-animate-mix"
+  | "wan2.2-animate-move"
+  | "wan2.5-t2v-preview"
+  | "wan2.5-i2v-preview"
+  | "wan2.5-t2i-preview"
+  | "wan2.5-i2i-preview"
+  | "wan2.2-i2v-flash"
+  | "wan2.2-i2v-plus"
+  | "wan2.2-t2v-plus"
+  | "wan2.2-t2i-plus"
+  | "wan2.2-t2i-flash"
+  | "wan2.1-vace-plus"
+  | "wan2.1-kf2v-plus";
+
+export type GenerationType = "text-to-video" | "image-to-video" | "text-to-image" | "image-to-image" | "animation" | "keyframe";
 export type VideoStatus = "pending" | "processing" | "completed" | "failed";
 export type AudioMode = "auto" | "custom" | "silent";
 

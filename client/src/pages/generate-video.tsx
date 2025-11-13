@@ -2,14 +2,15 @@ import { useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Project, ModelType, GenerationType, InsertVideo, AudioMode } from "@shared/schema";
+import { WAN_MODELS } from "@shared/models";
 import { ResolutionSelector } from "@/components/resolution-selector";
 import { PromptBuilder } from "@/components/prompt-builder";
 import { ImageUploader } from "@/components/image-uploader";
+import { ModelSelector } from "@/components/model-selector";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
@@ -22,13 +23,14 @@ export default function GenerateVideo() {
   const projectId = params?.id;
   const { toast } = useToast();
 
-  const [generationType, setGenerationType] = useState<GenerationType>("text-to-video");
   const [model, setModel] = useState<ModelType>("wan2.5-t2v-preview");
   const [videoName, setVideoName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
   const [resolution, setResolution] = useState("1920x1080");
   const [sourceImage, setSourceImage] = useState<File | null>(null);
+  const [firstKeyframe, setFirstKeyframe] = useState<File | null>(null);
+  const [lastKeyframe, setLastKeyframe] = useState<File | null>(null);
   const [audioMode, setAudioMode] = useState<AudioMode>("auto");
   const [customAudio, setCustomAudio] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -38,15 +40,9 @@ export default function GenerateVideo() {
     enabled: !!projectId,
   });
 
-  // Update model when generation type changes
-  const handleGenerationTypeChange = (type: GenerationType) => {
-    setGenerationType(type);
-    if (type === "text-to-video") {
-      setModel("wan2.5-t2v-preview");
-    } else {
-      setModel("wan2.5-i2v-preview");
-    }
-  };
+  // Get current model metadata
+  const selectedModelMeta = WAN_MODELS[model];
+  const generationType: GenerationType = selectedModelMeta.category;
 
   const generateMutation = useMutation({
     mutationFn: async (data: InsertVideo) => {
@@ -82,16 +78,28 @@ export default function GenerateVideo() {
       return;
     }
 
-    if (generationType === "image-to-video" && !sourceImage) {
+    // Validate required image for image-based models
+    if (selectedModelMeta.supportsImage && !selectedModelMeta.supportsKeyframes && !sourceImage) {
       toast({
         title: "Image required",
-        description: "Please upload an image for image-to-video generation",
+        description: `Please upload an image for ${selectedModelMeta.name}`,
         variant: "destructive",
       });
       return;
     }
 
-    if (audioMode === "custom" && !customAudio) {
+    // Validate required keyframes for keyframe models
+    if (selectedModelMeta.supportsKeyframes && (!firstKeyframe || !lastKeyframe)) {
+      toast({
+        title: "Keyframes required",
+        description: "Please upload both first and last keyframe images",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate custom audio
+    if (selectedModelMeta.supportsAudio && audioMode === "custom" && !customAudio) {
       toast({
         title: "Audio required",
         description: "Please upload an audio file when using custom audio mode",
@@ -101,9 +109,12 @@ export default function GenerateVideo() {
     }
 
     let sourceImageUrl = null;
+    let firstKeyframeUrl = null;
+    let lastKeyframeUrl = null;
     let audioUrl = null;
 
-    if (generationType === "image-to-video" && sourceImage) {
+    // Upload source image for image-based models (not keyframes)
+    if (selectedModelMeta.supportsImage && !selectedModelMeta.supportsKeyframes && sourceImage) {
       let uploadError = null;
       try {
         setIsUploading(true);
@@ -142,6 +153,71 @@ export default function GenerateVideo() {
         toast({
           title: "Upload failed",
           description: uploadError.message || "Failed to upload source image",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    // Upload keyframes for keyframe-to-video models
+    if (selectedModelMeta.supportsKeyframes && firstKeyframe && lastKeyframe) {
+      let uploadError = null;
+      try {
+        setIsUploading(true);
+        
+        // Upload first keyframe
+        const firstUploadResponse = await fetch("/api/objects/upload", {
+          method: "POST",
+        });
+        if (!firstUploadResponse.ok) {
+          throw new Error("Failed to get upload URL for first keyframe");
+        }
+        const { uploadURL: firstUploadURL } = await firstUploadResponse.json();
+        
+        const firstUploadResult = await fetch(firstUploadURL, {
+          method: "PUT",
+          body: firstKeyframe,
+          headers: {
+            "Content-Type": firstKeyframe.type,
+          },
+        });
+        if (!firstUploadResult.ok) {
+          throw new Error("Failed to upload first keyframe");
+        }
+        const firstUrl = new URL(firstUploadURL);
+        firstKeyframeUrl = `${firstUrl.origin}${firstUrl.pathname}`;
+
+        // Upload last keyframe
+        const lastUploadResponse = await fetch("/api/objects/upload", {
+          method: "POST",
+        });
+        if (!lastUploadResponse.ok) {
+          throw new Error("Failed to get upload URL for last keyframe");
+        }
+        const { uploadURL: lastUploadURL } = await lastUploadResponse.json();
+        
+        const lastUploadResult = await fetch(lastUploadURL, {
+          method: "PUT",
+          body: lastKeyframe,
+          headers: {
+            "Content-Type": lastKeyframe.type,
+          },
+        });
+        if (!lastUploadResult.ok) {
+          throw new Error("Failed to upload last keyframe");
+        }
+        const lastUrl = new URL(lastUploadURL);
+        lastKeyframeUrl = `${lastUrl.origin}${lastUrl.pathname}`;
+      } catch (error: any) {
+        uploadError = error;
+      } finally {
+        setIsUploading(false);
+      }
+
+      if (uploadError) {
+        toast({
+          title: "Upload failed",
+          description: uploadError.message || "Failed to upload keyframes",
           variant: "destructive",
         });
         return;
@@ -203,6 +279,8 @@ export default function GenerateVideo() {
       generationType,
       resolution,
       sourceImageUrl,
+      firstKeyframeUrl,
+      lastKeyframeUrl,
       audioMode,
       audioUrl,
     });
@@ -253,64 +331,44 @@ export default function GenerateVideo() {
                 />
               </div>
 
-              <Tabs
-                value={generationType}
-                onValueChange={(value) => handleGenerationTypeChange(value as GenerationType)}
-              >
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="text-to-video" data-testid="tab-text-to-video">
-                    Text to Video
-                  </TabsTrigger>
-                  <TabsTrigger value="image-to-video" data-testid="tab-image-to-video">
-                    Image to Video
-                  </TabsTrigger>
-                </TabsList>
+              <ModelSelector
+                value={model}
+                onChange={(value) => setModel(value as ModelType)}
+                disabled={generateMutation.isPending || isUploading}
+              />
 
-                <TabsContent value="text-to-video" className="mt-6">
-                  <PromptBuilder
-                    value={prompt}
-                    onChange={setPrompt}
-                    showHelpers={false}
-                  />
-                </TabsContent>
+              {selectedModelMeta.supportsImage && !selectedModelMeta.supportsKeyframes && (
+                <div>
+                  <Label className="text-sm font-semibold mb-2 block">
+                    Source Image
+                  </Label>
+                  <ImageUploader value={sourceImage} onChange={setSourceImage} />
+                </div>
+              )}
 
-                <TabsContent value="image-to-video" className="mt-6 space-y-6">
+              {selectedModelMeta.supportsKeyframes && (
+                <>
                   <div>
                     <Label className="text-sm font-semibold mb-2 block">
-                      Model
+                      First Keyframe
                     </Label>
-                    <Select
-                      value={model}
-                      onValueChange={(value) => setModel(value as ModelType)}
-                    >
-                      <SelectTrigger data-testid="select-model">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="wan2.5-i2v-preview">
-                          Wan 2.5 I2V (duration control)
-                        </SelectItem>
-                        <SelectItem value="wan2.2-i2v-plus">
-                          Wan 2.2 I2V Plus (no duration control)
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <ImageUploader value={firstKeyframe} onChange={setFirstKeyframe} />
                   </div>
 
                   <div>
                     <Label className="text-sm font-semibold mb-2 block">
-                      Source Image
+                      Last Keyframe
                     </Label>
-                    <ImageUploader value={sourceImage} onChange={setSourceImage} />
+                    <ImageUploader value={lastKeyframe} onChange={setLastKeyframe} />
                   </div>
+                </>
+              )}
 
-                  <PromptBuilder
-                    value={prompt}
-                    onChange={setPrompt}
-                    showHelpers={false}
-                  />
-                </TabsContent>
-              </Tabs>
+              <PromptBuilder
+                value={prompt}
+                onChange={setPrompt}
+                showHelpers={false}
+              />
 
               <div>
                 <Label htmlFor="negative-prompt" className="text-sm font-semibold">
@@ -329,42 +387,46 @@ export default function GenerateVideo() {
                 </p>
               </div>
 
-              <div>
-                <Label className="text-sm font-semibold mb-2 block">
-                  Audio Mode
-                </Label>
-                <Select
-                  value={audioMode}
-                  onValueChange={(value) => setAudioMode(value as AudioMode)}
-                >
-                  <SelectTrigger data-testid="select-audio-mode">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">Auto (AI-generated)</SelectItem>
-                    <SelectItem value="custom">Custom Audio</SelectItem>
-                    <SelectItem value="silent">Silent (No audio)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {selectedModelMeta.supportsAudio && (
+                <>
+                  <div>
+                    <Label className="text-sm font-semibold mb-2 block">
+                      Audio Mode
+                    </Label>
+                    <Select
+                      value={audioMode}
+                      onValueChange={(value) => setAudioMode(value as AudioMode)}
+                    >
+                      <SelectTrigger data-testid="select-audio-mode">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Auto (AI-generated)</SelectItem>
+                        <SelectItem value="custom">Custom Audio</SelectItem>
+                        <SelectItem value="silent">Silent (No audio)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              {audioMode === "custom" && (
-                <div>
-                  <Label className="text-sm font-semibold mb-2 block">
-                    Custom Audio File
-                  </Label>
-                  <Input
-                    type="file"
-                    accept="audio/*"
-                    onChange={(e) => setCustomAudio(e.target.files?.[0] || null)}
-                    data-testid="input-custom-audio"
-                  />
-                  {customAudio && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Selected: {customAudio.name}
-                    </p>
+                  {audioMode === "custom" && (
+                    <div>
+                      <Label className="text-sm font-semibold mb-2 block">
+                        Custom Audio File
+                      </Label>
+                      <Input
+                        type="file"
+                        accept="audio/*"
+                        onChange={(e) => setCustomAudio(e.target.files?.[0] || null)}
+                        data-testid="input-custom-audio"
+                      />
+                      {customAudio && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Selected: {customAudio.name}
+                        </p>
+                      )}
+                    </div>
                   )}
-                </div>
+                </>
               )}
 
               <ResolutionSelector
