@@ -356,11 +356,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/objects/upload", async (_req, res) => {
+  app.post("/api/objects/upload", async (req, res) => {
     try {
       const objectStorageService = new ObjectStorageService();
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-      res.json({ uploadURL });
+      // Also return the normalized path that can be accessed publicly through this server
+      const normalizedPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      
+      // Construct the full public URL from the request
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+      const host = req.headers['x-forwarded-host'] || req.headers.host || req.hostname;
+      const publicUrl = `${protocol}://${host}${normalizedPath}`;
+      
+      res.json({ uploadURL, publicUrl });
     } catch (error) {
       console.error("Error generating upload URL:", error);
       res.status(500).json({ error: "Failed to generate upload URL" });

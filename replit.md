@@ -3,6 +3,22 @@
 ## Overview
 VideoForge is an AI video generation platform leveraging Alibaba Cloud's Wan API via DashScope to create videos. It supports 13 Wan models across six generation categories (text-to-video, image-to-video, text-to-image, image-to-image, animation, keyframe-to-video), offering features like negative prompts, custom audio, and optimized resolutions. The platform provides a modern workspace for managing video generation projects, tracking real-time progress, and organizing content, aiming to simplify AI-driven video creation for users.
 
+## Recent Changes (November 14, 2025)
+
+**Object Storage Fix for Wan API Access (Latest)**
+- **Problem**: Wan API could not access uploaded media files, returning authorization error: "Don't have authorization to access the media resource during the data inspection process."
+- **Root Cause**: Files were uploaded to Google Cloud Storage with restricted access. We were sending direct GCS URLs to Wan API, but those URLs required public access at the storage level.
+- **Solution**: 
+  - Server now constructs full public URLs for uploaded files using request headers (protocol, host)
+  - `/api/objects/upload` endpoint returns both `uploadURL` (for uploading to GCS) and `publicUrl` (for accessing through our server)
+  - Frontend uses `publicUrl` directly, sending it to Wan API
+  - Wan API now accesses files through our server's `/objects/:objectPath` route which serves files publicly
+  - Example flow: Upload to GCS → Get public URL `https://myapp.replit.dev/objects/uploads/uuid` → Send to Wan API
+- **Benefits**:
+  - No browser-specific code (`window.location`) - works in SSR/testing
+  - Server controls URL construction with proper proxy header handling
+  - Works in both dev and production environments
+
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 

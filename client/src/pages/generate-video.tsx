@@ -126,7 +126,7 @@ export default function GenerateVideo() {
           throw new Error("Failed to get upload URL");
         }
 
-        const { uploadURL } = await uploadResponse.json();
+        const { uploadURL, publicUrl } = await uploadResponse.json();
 
         const uploadResult = await fetch(uploadURL, {
           method: "PUT",
@@ -140,9 +140,8 @@ export default function GenerateVideo() {
           throw new Error("Failed to upload image");
         }
 
-        // Use the full uploadURL without query parameters for Wan API
-        const url = new URL(uploadURL);
-        sourceImageUrl = `${url.origin}${url.pathname}`;
+        // Use the public URL served by our server - this is accessible to external APIs
+        sourceImageUrl = publicUrl;
       } catch (error: any) {
         uploadError = error;
       } finally {
@@ -172,7 +171,7 @@ export default function GenerateVideo() {
         if (!firstUploadResponse.ok) {
           throw new Error("Failed to get upload URL for first keyframe");
         }
-        const { uploadURL: firstUploadURL } = await firstUploadResponse.json();
+        const { uploadURL: firstUploadURL, publicUrl: firstPublicUrl } = await firstUploadResponse.json();
         
         const firstUploadResult = await fetch(firstUploadURL, {
           method: "PUT",
@@ -184,8 +183,7 @@ export default function GenerateVideo() {
         if (!firstUploadResult.ok) {
           throw new Error("Failed to upload first keyframe");
         }
-        const firstUrl = new URL(firstUploadURL);
-        firstKeyframeUrl = `${firstUrl.origin}${firstUrl.pathname}`;
+        firstKeyframeUrl = firstPublicUrl;
 
         // Upload last keyframe
         const lastUploadResponse = await fetch("/api/objects/upload", {
@@ -194,7 +192,7 @@ export default function GenerateVideo() {
         if (!lastUploadResponse.ok) {
           throw new Error("Failed to get upload URL for last keyframe");
         }
-        const { uploadURL: lastUploadURL } = await lastUploadResponse.json();
+        const { uploadURL: lastUploadURL, publicUrl: lastPublicUrl } = await lastUploadResponse.json();
         
         const lastUploadResult = await fetch(lastUploadURL, {
           method: "PUT",
@@ -206,8 +204,7 @@ export default function GenerateVideo() {
         if (!lastUploadResult.ok) {
           throw new Error("Failed to upload last keyframe");
         }
-        const lastUrl = new URL(lastUploadURL);
-        lastKeyframeUrl = `${lastUrl.origin}${lastUrl.pathname}`;
+        lastKeyframeUrl = lastPublicUrl;
       } catch (error: any) {
         uploadError = error;
       } finally {
@@ -237,7 +234,7 @@ export default function GenerateVideo() {
           throw new Error("Failed to get upload URL");
         }
 
-        const { uploadURL } = await uploadResponse.json();
+        const { uploadURL, publicUrl } = await uploadResponse.json();
 
         const uploadResult = await fetch(uploadURL, {
           method: "PUT",
@@ -251,9 +248,8 @@ export default function GenerateVideo() {
           throw new Error("Failed to upload audio");
         }
 
-        // Use the full uploadURL without query parameters for Wan API
-        const url = new URL(uploadURL);
-        audioUrl = `${url.origin}${url.pathname}`;
+        // Use the public URL served by our server - this is accessible to external APIs
+        audioUrl = publicUrl;
       } catch (error: any) {
         uploadError = error;
       } finally {

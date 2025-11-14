@@ -188,6 +188,17 @@ export class ObjectStorageService {
     return `/objects/${entityId}`;
   }
 
+  // Convert a GCS upload URL to a full public URL served by this server
+  getPublicUrlFromUploadUrl(uploadUrl: string, baseUrl: string): string {
+    const normalizedPath = this.normalizeObjectEntityPath(uploadUrl);
+    if (normalizedPath.startsWith("/objects/")) {
+      // Remove trailing slash from baseUrl if present
+      const cleanBaseUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+      return `${cleanBaseUrl}${normalizedPath}`;
+    }
+    return uploadUrl;
+  }
+
   async trySetObjectEntityAclPolicy(
     rawPath: string,
     aclPolicy: ObjectAclPolicy
