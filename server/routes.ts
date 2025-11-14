@@ -32,6 +32,53 @@ async function startVideoGenerationJob(
     // Track last updated progress to avoid excessive DB writes
     let lastUpdatedProgress = 10;
 
+    // Convert public URLs to base64 data URLs to avoid network timeout issues
+    let imageDataUrl = options.imageUrl;
+    let audioDataUrl = options.audioUrl;
+    let firstKeyframeDataUrl = options.firstKeyframeUrl;
+    let lastKeyframeDataUrl = options.lastKeyframeUrl;
+
+    // Helper to convert URL to base64
+    const convertToBase64 = async (url: string | undefined): Promise<string | undefined> => {
+      if (!url) return undefined;
+      
+      // Check if it's one of our object storage URLs
+      if (url.includes('/objects/uploads/')) {
+        try {
+          const urlObj = new URL(url);
+          const objectPath = urlObj.pathname.replace('/objects/', '');
+          const response = await fetch(`http://localhost:5000/api/objects/base64/${objectPath}`);
+          if (response.ok) {
+            const { dataUrl } = await response.json();
+            console.log(`Converted ${objectPath} to base64 (size: ${dataUrl.length} chars)`);
+            return dataUrl;
+          } else {
+            console.warn(`Failed to convert ${objectPath} to base64, using public URL`);
+            return url;
+          }
+        } catch (error) {
+          console.error(`Error converting URL to base64:`, error);
+          return url; // Fallback to public URL
+        }
+      }
+      
+      return url; // External URL, keep as-is
+    };
+
+    // Convert all media URLs to base64
+    if (options.imageUrl) {
+      imageDataUrl = await convertToBase64(options.imageUrl);
+    }
+    if (options.audioUrl) {
+      audioDataUrl = await convertToBase64(options.audioUrl);
+    }
+    if (options.firstKeyframeUrl) {
+      firstKeyframeDataUrl = await convertToBase64(options.firstKeyframeUrl);
+    }
+    if (options.lastKeyframeUrl) {
+      lastKeyframeDataUrl = await convertToBase64(options.lastKeyframeUrl);
+    }
+
     const result = await generateWanVideo(
       {
         model,
@@ -41,10 +88,10 @@ async function startVideoGenerationJob(
         duration: options.duration || 10,
         promptExtend: true,
         audioMode: (options.audioMode as any) || "auto",
-        audioUrl: options.audioUrl,
-        imageUrl: options.imageUrl,
-        firstKeyframeUrl: options.firstKeyframeUrl,
-        lastKeyframeUrl: options.lastKeyframeUrl,
+        audioUrl: audioDataUrl,
+        imageUrl: imageDataUrl,
+        firstKeyframeUrl: firstKeyframeDataUrl,
+        lastKeyframeUrl: lastKeyframeDataUrl,
       },
       async (progress: number) => {
         // Only update DB if progress increased by at least 5%
@@ -368,10 +415,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const host = req.headers['x-forwarded-host'] || req.headers.host || req.hostname;
       const publicUrl = `${protocol}://${host}${normalizedPath}`;
       
-      res.json({ uploadURL, publicUrl });
+      res.json({ uploadURL, publicUrl, objectPath: normalizedPath });
     } catch (error) {
       console.error("Error generating upload URL:", error);
       res.status(500).json({ error: "Failed to generate upload URL" });
+    }
+  });
+
+  // New endpoint to get file as base64 (for Wan API which has timeout issues with public URLs)
+  app.get("/api/objects/base64/:objectPath(*)", async (req, res) => {
+    const objectStorageService = new ObjectStorageService();
+    try {
+      const objectFile = await objectStorageService.getObjectEntityFile(`/objects/${req.params.objectPath}`);
+      const [metadata] = await objectFile.getMetadata();
+      
+      // Download file to buffer
+      const chunks: Buffer[] = [];
+      const stream = objectFile.createReadStream();
+      
+      await new Promise((resolve, reject) => {
+        stream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        stream.on('error', reject);
+        stream.on('end', resolve);
+      });
+      
+      const buffer = Buffer.concat(chunks);
+      const base64 = buffer.toString('base64');
+      const mimeType = metadata.contentType || 'application/octet-stream';
+      const dataUrl = `data:${mimeType};base64,${base64}`;
+      
+      res.json({ dataUrl, mimeType, size: buffer.length });
+    } catch (error) {
+      console.error("Error getting base64:", error);
+      if (error instanceof ObjectNotFoundError) {
+        return res.sendStatus(404);
+      }
+      res.status(500).json({ error: "Failed to get base64" });
     }
   });
 
