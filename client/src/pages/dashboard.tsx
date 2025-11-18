@@ -20,6 +20,18 @@ export default function Dashboard() {
   const [videoToEdit, setVideoToEdit] = useState<Video | null>(null);
   const { toast } = useToast();
 
+  // Fetch all projects for welcome screen stats
+  const { data: allProjects = [] } = useQuery<Project[]>({
+    queryKey: ["/api/projects"],
+    enabled: !projectId,
+  });
+
+  // Fetch all videos for welcome screen stats
+  const { data: allVideos = [] } = useQuery<Video[]>({
+    queryKey: ["/api/videos"],
+    enabled: !projectId,
+  });
+
   const { data: project, isLoading: projectLoading } = useQuery<Project>({
     queryKey: ["/api/projects", projectId],
     enabled: !!projectId,
@@ -45,8 +57,14 @@ export default function Dashboard() {
     if (!video.videoUrl) return;
 
     try {
+      // Construct full URL if videoUrl is a relative path (stored videos)
+      let downloadUrl = video.videoUrl;
+      if (downloadUrl.startsWith('/objects/')) {
+        downloadUrl = `${window.location.origin}${downloadUrl}`;
+      }
+
       const link = document.createElement("a");
-      link.href = video.videoUrl;
+      link.href = downloadUrl;
       link.download = `${video.name}.mp4`;
       document.body.appendChild(link);
       link.click();
@@ -100,14 +118,79 @@ export default function Dashboard() {
   };
 
   if (!projectId) {
+    // Calculate overall statistics
+    const totalProjectsCount = allProjects.length;
+    const totalVideosCount = allVideos.length;
+    const completedVideosCount = allVideos.filter((v) => v.status === "completed").length;
+    const processingVideosCount = allVideos.filter((v) => v.status === "processing" || v.status === "pending").length;
+    const totalDuration = allVideos
+      .filter((v) => v.duration)
+      .reduce((sum, v) => sum + (v.duration || 0), 0);
+
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center max-w-md">
-          <VideoIcon className="w-20 h-20 mx-auto mb-6 text-muted-foreground opacity-30" />
-          <h2 className="text-2xl font-bold mb-2">Welcome to VideoForge</h2>
-          <p className="text-muted-foreground mb-6">
-            Create a project from the sidebar to get started with AI video generation
+        <div className="text-center max-w-4xl px-4">
+          <VideoIcon className="w-20 h-20 mx-auto mb-6 text-primary" />
+          <h2 className="text-3xl font-bold mb-2">Welcome to VideoForge</h2>
+          <p className="text-muted-foreground mb-8">
+            AI-powered video generation using Alibaba Cloud Wan models
           </p>
+          
+          {totalProjectsCount > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-8">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Projects</CardTitle>
+                  <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold" data-testid="stat-total-projects">{totalProjectsCount}</div>
+                  <p className="text-xs text-muted-foreground mt-1">Active projects</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Videos</CardTitle>
+                  <VideoIcon className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold" data-testid="stat-all-videos">{totalVideosCount}</div>
+                  <p className="text-xs text-muted-foreground mt-1">All generated videos</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Completed</CardTitle>
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold" data-testid="stat-all-completed">{completedVideosCount}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {totalVideosCount > 0 ? Math.round((completedVideosCount / totalVideosCount) * 100) : 0}% success rate
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Duration</CardTitle>
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold" data-testid="stat-all-duration">{totalDuration}s</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {Math.round(totalDuration / 60)} minutes of video
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            <p className="text-muted-foreground mt-6">
+              Create a project from the sidebar to get started with AI video generation
+            </p>
+          )}
         </div>
       </div>
     );

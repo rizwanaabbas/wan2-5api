@@ -39,7 +39,7 @@ function AppContent() {
     queryKey: ["/api/projects"],
   });
 
-  const { data: allVideos = [] } = useQuery({
+  const { data: allVideos = [] } = useQuery<any[]>({
     queryKey: ["/api/videos"],
   });
 
@@ -49,7 +49,7 @@ function AppContent() {
   }, {});
 
   const createProjectMutation = useMutation({
-    mutationFn: async (data: { name: string; globalPrompt?: string }) => {
+    mutationFn: async (data: { name: string; globalPrompt?: string; imageUrl?: string; defaultModel?: string }) => {
       const res = await apiRequest("POST", "/api/projects", data);
       return res.json();
     },
@@ -72,8 +72,8 @@ function AppContent() {
   });
 
   const renameProjectMutation = useMutation({
-    mutationFn: async ({ id, name, globalPrompt }: { id: string; name: string; globalPrompt?: string }) => {
-      const res = await apiRequest("PATCH", `/api/projects/${id}`, { name, globalPrompt });
+    mutationFn: async ({ id, name, globalPrompt, imageUrl, defaultModel }: { id: string; name: string; globalPrompt?: string; imageUrl?: string; defaultModel?: string }) => {
+      const res = await apiRequest("PATCH", `/api/projects/${id}`, { name, globalPrompt, imageUrl, defaultModel });
       return res.json();
     },
     onSuccess: (updatedProject: Project) => {
@@ -81,14 +81,14 @@ function AppContent() {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", updatedProject.id] });
       setProjectDialogOpen(false);
       toast({
-        title: "Project renamed",
-        description: `Project renamed to ${updatedProject.name}`,
+        title: "Project updated",
+        description: `Project ${updatedProject.name} has been updated`,
       });
     },
     onError: () => {
       toast({
         title: "Error",
-        description: "Failed to rename project",
+        description: "Failed to update project",
         variant: "destructive",
       });
     },
@@ -134,11 +134,11 @@ function AppContent() {
     setDeleteDialogOpen(true);
   };
 
-  const handleProjectDialogSubmit = (name: string, globalPrompt?: string) => {
+  const handleProjectDialogSubmit = (name: string, globalPrompt?: string, imageUrl?: string, defaultModel?: string) => {
     if (projectDialogMode === "create") {
-      createProjectMutation.mutate({ name, globalPrompt });
+      createProjectMutation.mutate({ name, globalPrompt, imageUrl, defaultModel });
     } else if (selectedProject) {
-      renameProjectMutation.mutate({ id: selectedProject.id, name, globalPrompt });
+      renameProjectMutation.mutate({ id: selectedProject.id, name, globalPrompt, imageUrl, defaultModel });
     }
   };
 

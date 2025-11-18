@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Project, ModelType, GenerationType, InsertVideo, AudioMode } from "@shared/schema";
@@ -40,6 +40,13 @@ export default function GenerateVideo() {
     enabled: !!projectId,
   });
 
+  // Set default model from project when project loads
+  useEffect(() => {
+    if (project?.defaultModel) {
+      setModel(project.defaultModel as ModelType);
+    }
+  }, [project?.defaultModel]);
+
   // Get current model metadata
   const selectedModelMeta = WAN_MODELS[model];
   const generationType: GenerationType = selectedModelMeta.category;
@@ -78,11 +85,11 @@ export default function GenerateVideo() {
       return;
     }
 
-    // Validate required image for image-based models
-    if (selectedModelMeta.supportsImage && !selectedModelMeta.supportsKeyframes && !sourceImage) {
+    // Validate required image for image-based models (check both uploaded image and project default)
+    if (selectedModelMeta.supportsImage && !selectedModelMeta.supportsKeyframes && !sourceImage && !project?.imageUrl) {
       toast({
         title: "Image required",
-        description: `Please upload an image for ${selectedModelMeta.name}`,
+        description: `Please upload an image or set a default image in project settings for ${selectedModelMeta.name}`,
         variant: "destructive",
       });
       return;
@@ -112,6 +119,11 @@ export default function GenerateVideo() {
     let firstKeyframeUrl = null;
     let lastKeyframeUrl = null;
     let audioUrl = null;
+
+    // Use project's default image if no image uploaded
+    if (selectedModelMeta.supportsImage && !selectedModelMeta.supportsKeyframes && !sourceImage && project?.imageUrl) {
+      sourceImageUrl = project.imageUrl;
+    }
 
     // Upload source image for image-based models (not keyframes)
     if (selectedModelMeta.supportsImage && !selectedModelMeta.supportsKeyframes && sourceImage) {

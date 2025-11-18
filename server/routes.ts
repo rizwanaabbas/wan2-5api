@@ -5,6 +5,72 @@ import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { insertProjectSchema, insertVideoSchema } from "@shared/schema";
 import { generateWanVideo, getWanSize } from "./wan";
 
+// Helper to get the public base URL from environment or default
+function getPublicBaseUrl(): string {
+  return process.env.APP_BASE_URL || 'http://127.0.0.1:5000';
+}
+
+// Helper to build full public asset URLs from relative paths
+function buildPublicAssetUrl(pathOrUrl: string): string {
+  // If it's already a full URL, return as-is
+  if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
+    return pathOrUrl;
+  }
+  
+  // If it's a relative path, construct full URL
+  if (pathOrUrl.startsWith('/')) {
+    return `${getPublicBaseUrl()}${pathOrUrl}`;
+  }
+  
+  return pathOrUrl;
+}
+
+// Helper function to download and store video from Wan API URL
+async function downloadAndStoreVideo(videoUrl: string): Promise<string | null> {
+  try {
+    console.log(`Downloading video from Wan API: ${videoUrl}`);
+    
+    // Download the video from Wan API
+    const response = await fetch(videoUrl);
+    if (!response.ok) {
+      console.error(`Failed to download video: ${response.statusText}`);
+      return null;
+    }
+
+    // Preserve the original content type from Wan API response
+    const contentType = response.headers.get('content-type') || 'video/mp4';
+    const buffer = Buffer.from(await response.arrayBuffer());
+    console.log(`Downloaded video: ${buffer.length} bytes, type: ${contentType}`);
+
+    // Upload to object storage
+    const objectStorageService = new ObjectStorageService();
+    const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+    
+    // Upload the video file with original content type
+    const uploadResponse = await fetch(uploadURL, {
+      method: "PUT",
+      body: buffer,
+      headers: {
+        "Content-Type": contentType,
+      },
+    });
+
+    if (!uploadResponse.ok) {
+      console.error(`Failed to upload video to storage: ${uploadResponse.statusText}`);
+      return null;
+    }
+
+    // Return the normalized path - the frontend will use /objects/:path route to access it
+    const normalizedPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+    console.log(`Video stored at: ${normalizedPath}`);
+    
+    return normalizedPath;
+  } catch (error) {
+    console.error("Error downloading and storing video:", error);
+    return null;
+  }
+}
+
 // Helper function to start video generation job
 async function startVideoGenerationJob(
   videoId: string,
@@ -42,23 +108,37 @@ async function startVideoGenerationJob(
     const convertToBase64 = async (url: string | undefined): Promise<string | undefined> => {
       if (!url) return undefined;
       
-      // Check if it's one of our object storage URLs
+      // Check if it's one of our object storage URLs (absolute or relative path)
       if (url.includes('/objects/uploads/')) {
         try {
-          const urlObj = new URL(url);
-          const objectPath = urlObj.pathname.replace('/objects/', '');
-          const response = await fetch(`http://localhost:5000/api/objects/base64/${objectPath}`);
+          // Extract the object path - handle both absolute URLs and relative paths
+          let objectPath: string;
+          if (url.startsWith('http://') || url.startsWith('https://')) {
+            // Absolute URL: extract pathname
+            const urlObj = new URL(url);
+            objectPath = urlObj.pathname.replace('/objects/', '');
+          } else if (url.startsWith('/objects/')) {
+            // Relative path: remove /objects/ prefix
+            objectPath = url.replace('/objects/', '');
+          } else {
+            // Shouldn't happen, but fallback
+            return url;
+          }
+
+          // Use the public base URL for internal server-to-server communication
+          const baseUrl = getPublicBaseUrl();
+          const response = await fetch(`${baseUrl}/api/objects/base64/${objectPath}`);
           if (response.ok) {
             const { dataUrl } = await response.json();
             console.log(`Converted ${objectPath} to base64 (size: ${dataUrl.length} chars)`);
             return dataUrl;
           } else {
-            console.warn(`Failed to convert ${objectPath} to base64, using public URL`);
+            console.warn(`Failed to convert ${objectPath} to base64, using original URL`);
             return url;
           }
         } catch (error) {
           console.error(`Error converting URL to base64:`, error);
-          return url; // Fallback to public URL
+          return url; // Fallback to original URL
         }
       }
       
@@ -103,11 +183,26 @@ async function startVideoGenerationJob(
       }
     );
 
+    // Download and store video on our server to avoid 24h URL expiry
+    let storedVideoUrl = result.videoUrl;
+    if (result.videoUrl) {
+      console.log(`Downloading and storing video ${videoId} to prevent 24h expiry...`);
+      const storedPath = await downloadAndStoreVideo(result.videoUrl);
+      if (storedPath) {
+        // storedPath is already a relative path like /objects/uploads/...
+        // We'll keep it as relative, and the frontend will construct full URLs
+        storedVideoUrl = storedPath;
+        console.log(`Video ${videoId} successfully stored at: ${storedPath}`);
+      } else {
+        console.warn(`Failed to store video ${videoId}, using original Wan URL (expires in 24h)`);
+      }
+    }
+
     await storage.updateVideo(videoId, {
       status: "completed",
       progress: 100,
       taskId: result.taskId,
-      videoUrl: result.videoUrl,
+      videoUrl: storedVideoUrl,
       thumbnailUrl: result.thumbnailUrl || null,
       duration: result.duration,
     });

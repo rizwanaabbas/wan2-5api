@@ -3,21 +3,29 @@
 ## Overview
 VideoForge is an AI video generation platform leveraging Alibaba Cloud's Wan API via DashScope to create videos. It supports 13 Wan models across six generation categories (text-to-video, image-to-video, text-to-image, image-to-image, animation, keyframe-to-video), offering features like negative prompts, custom audio, and optimized resolutions. The platform provides a modern workspace for managing video generation projects, tracking real-time progress, and organizing content, aiming to simplify AI-driven video creation for users.
 
-## Recent Changes (November 14, 2025)
+## Recent Changes (November 18, 2025)
 
-**Object Storage Fix for Wan API Access (Latest)**
-- **Problem**: Wan API could not access uploaded media files, returning authorization error: "Don't have authorization to access the media resource during the data inspection process."
-- **Root Cause**: Files were uploaded to Google Cloud Storage with restricted access. We were sending direct GCS URLs to Wan API, but those URLs required public access at the storage level.
-- **Solution**: 
-  - Server now constructs full public URLs for uploaded files using request headers (protocol, host)
-  - `/api/objects/upload` endpoint returns both `uploadURL` (for uploading to GCS) and `publicUrl` (for accessing through our server)
-  - Frontend uses `publicUrl` directly, sending it to Wan API
-  - Wan API now accesses files through our server's `/objects/:objectPath` route which serves files publicly
-  - Example flow: Upload to GCS → Get public URL `https://myapp.replit.dev/objects/uploads/uuid` → Send to Wan API
-- **Benefits**:
-  - No browser-specific code (`window.location`) - works in SSR/testing
-  - Server controls URL construction with proper proxy header handling
-  - Works in both dev and production environments
+**New Features: Project Management & Video Storage (Latest)**
+1. **Dashboard Statistics**: Welcome page now displays total project and video stats across all projects (total projects, total videos, completed videos, success rate, total duration).
+
+2. **Project Image Upload**: Projects can now have a default image that's used automatically for image-based models when no image is provided during video generation.
+
+3. **Default Model Selection**: Projects can specify a default model that's pre-selected on the video generation page, streamlining the workflow.
+
+4. **Automatic Video Storage**: Videos are now automatically downloaded from Wan API and stored in object storage after generation completes, preventing issues with 24-hour URL expiry.
+   - Preserves original MIME type from Wan API (supports video/mp4, image/gif, etc.)
+   - Stored videos accessed via `/objects/:path` route
+   - Frontend automatically constructs full URLs for relative paths
+   - Works seamlessly in both playback and download
+
+**Base64 Media Encoding for Wan API (November 14)**
+- **Problem**: Wan API had timeout issues accessing uploaded files from Replit server.
+- **Solution**: Convert uploaded media files to Base64 data URLs before sending to Wan API, eliminating network latency and authorization issues.
+- **Implementation**: 
+  - New `/api/objects/base64/:objectPath` endpoint converts stored files to Base64
+  - Video generation automatically converts image/audio URLs to Base64 before API submission
+  - Fallback to public URLs if Base64 conversion fails
+- **Benefits**: Eliminates timeout errors, works for all file types (images, audio, keyframes)
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -39,16 +47,19 @@ Preferred communication style: Simple, everyday language.
 ### Data Storage
 - **Database**: PostgreSQL via Neon serverless driver.
 - **ORM**: Drizzle ORM for type-safe queries and migrations.
-- **Data Models**: `projects` (id, name, globalPrompt, createdAt), `videos` (id, projectId, name, prompt, model, generationType, resolution, status, progress, videoUrl, thumbnailUrl, sourceImageUrl, duration, errorMessage, createdAt, firstKeyframeUrl, lastKeyframeUrl).
+- **Data Models**: 
+  - `projects` (id, name, globalPrompt, imageUrl, defaultModel, createdAt)
+  - `videos` (id, projectId, name, prompt, model, generationType, resolution, status, progress, videoUrl, thumbnailUrl, sourceImageUrl, duration, errorMessage, createdAt, firstKeyframeUrl, lastKeyframeUrl)
 - **Persistence**: Currently uses `DbStorage` with PostgreSQL, `MemStorage` for development/testing.
 
 ### UI/UX Decisions
-- Modern workspace interface.
+- Modern workspace interface with comprehensive dashboard statistics.
 - Intelligent model selector displaying speed, quality, and cost metadata.
-- Project-based organization with global prompts.
+- Project-based organization with global prompts, default images, and default models.
 - Configurable video generation settings (size, duration, audio).
-- Real-time progress tracking.
+- Real-time progress tracking with visual feedback.
 - Edit and regenerate videos with modified prompts.
+- Persistent video storage eliminating 24-hour URL expiry issues.
 
 ### Technical Implementations
 - Asynchronous task polling for video generation completion.
@@ -57,6 +68,9 @@ Preferred communication style: Simple, everyday language.
 - Automatic model switching based on generation requirements.
 - Backend validation for all input parameters.
 - Robust error handling and recovery for video generation tasks.
+- Base64 encoding for media uploads to Wan API (prevents timeout issues).
+- Automatic video download and storage after generation (prevents 24h URL expiry).
+- MIME type preservation for all stored videos/images.
 
 ## External Dependencies
 

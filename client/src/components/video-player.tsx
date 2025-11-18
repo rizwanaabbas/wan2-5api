@@ -13,6 +13,12 @@ interface VideoPlayerProps {
 export function VideoPlayer({ video, open, onClose, onDownload }: VideoPlayerProps) {
   if (!video) return null;
 
+  // Construct full URL if videoUrl is a relative path (stored videos)
+  let videoSrc = video.videoUrl || '';
+  if (videoSrc.startsWith('/objects/')) {
+    videoSrc = `${window.location.origin}${videoSrc}`;
+  }
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl p-0 gap-0" data-testid="modal-video-player">
@@ -40,7 +46,7 @@ export function VideoPlayer({ video, open, onClose, onDownload }: VideoPlayerPro
         <div className="relative bg-black aspect-video">
           {video.videoUrl ? (
             <video
-              src={video.videoUrl}
+              src={videoSrc}
               controls
               autoPlay
               className="w-full h-full"

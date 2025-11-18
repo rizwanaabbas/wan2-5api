@@ -7,6 +7,8 @@ export const projects = pgTable("projects", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   globalPrompt: text("global_prompt"), // Prepended to all video prompts in this project
+  imageUrl: text("image_url"), // Default image for video generation in this project
+  defaultModel: text("default_model"), // Default Wan model for this project
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
