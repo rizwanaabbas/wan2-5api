@@ -59,6 +59,7 @@ export default function GenerateVideo() {
       return apiRequest("POST", "/api/videos", data);
     },
     onSuccess: () => {
+      setShowConfirmDialog(false);
       queryClient.invalidateQueries({ queryKey: ["/api/videos", projectId] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       toast({
@@ -68,6 +69,7 @@ export default function GenerateVideo() {
       setLocation(`/project/${projectId}`);
     },
     onError: (error: any) => {
+      setShowConfirmDialog(false);
       toast({
         title: "Generation failed",
         description: error.message || "Failed to start video generation",
@@ -90,9 +92,16 @@ export default function GenerateVideo() {
 
     // Combine prompt with global prompt if available
     let combinedPrompt = prompt.trim();
-    if (project?.globalPrompt?.trim()) {
-      combinedPrompt = `${prompt.trim()} ${project.globalPrompt.trim()}`;
+    const globalPromptText = project?.globalPrompt?.trim();
+    
+    if (globalPromptText && globalPromptText.length > 0) {
+      combinedPrompt = `${prompt.trim()} ${globalPromptText}`;
     }
+    
+    console.log('User prompt:', prompt.trim());
+    console.log('Global prompt:', globalPromptText);
+    console.log('Combined prompt:', combinedPrompt);
+    
     setFinalPrompt(combinedPrompt);
     
     // Show confirmation dialog with preview
@@ -100,7 +109,7 @@ export default function GenerateVideo() {
   };
 
   const handleConfirmGeneration = async () => {
-    setShowConfirmDialog(false);
+    // Keep dialog open during upload/validation, close on success/error via mutation callbacks
 
     // Validate required image for image-based models (check both uploaded image and project default)
     if (selectedModelMeta.supportsImage && !selectedModelMeta.supportsKeyframes && !sourceImage && !project?.imageUrl) {
