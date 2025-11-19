@@ -296,7 +296,7 @@ export default function GenerateVideo() {
     }
 
     generateMutation.mutate({
-      projectId,
+      projectId: projectId!,
       name: videoName.trim(),
       prompt: finalPrompt, // Use the combined prompt
       negativePrompt: negativePrompt.trim() || undefined,
