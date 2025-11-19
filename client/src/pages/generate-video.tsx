@@ -13,7 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ArrowLeft, Loader2, Sparkles, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 
@@ -34,6 +35,8 @@ export default function GenerateVideo() {
   const [audioMode, setAudioMode] = useState<AudioMode>("auto");
   const [customAudio, setCustomAudio] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [finalPrompt, setFinalPrompt] = useState("");
 
   const { data: project } = useQuery<Project>({
     queryKey: ["/api/projects", projectId],
@@ -84,6 +87,20 @@ export default function GenerateVideo() {
       });
       return;
     }
+
+    // Combine prompt with global prompt if available
+    let combinedPrompt = prompt.trim();
+    if (project?.globalPrompt?.trim()) {
+      combinedPrompt = `${prompt.trim()} ${project.globalPrompt.trim()}`;
+    }
+    setFinalPrompt(combinedPrompt);
+    
+    // Show confirmation dialog with preview
+    setShowConfirmDialog(true);
+  };
+
+  const handleConfirmGeneration = async () => {
+    setShowConfirmDialog(false);
 
     // Validate required image for image-based models (check both uploaded image and project default)
     if (selectedModelMeta.supportsImage && !selectedModelMeta.supportsKeyframes && !sourceImage && !project?.imageUrl) {
@@ -281,7 +298,7 @@ export default function GenerateVideo() {
     generateMutation.mutate({
       projectId,
       name: videoName.trim(),
-      prompt: prompt.trim(),
+      prompt: finalPrompt, // Use the combined prompt
       negativePrompt: negativePrompt.trim() || undefined,
       model,
       generationType,
@@ -290,7 +307,7 @@ export default function GenerateVideo() {
       firstKeyframeUrl,
       lastKeyframeUrl,
       audioMode,
-      audioUrl,
+      audioUrl: audioUrl || undefined,
     });
   };
 
@@ -349,8 +366,38 @@ export default function GenerateVideo() {
                 <div>
                   <Label className="text-sm font-semibold mb-2 block">
                     Source Image
+                    {project?.imageUrl && !sourceImage && (
+                      <span className="text-xs text-muted-foreground font-normal ml-2">
+                        (Using project default image)
+                      </span>
+                    )}
                   </Label>
-                  <ImageUploader value={sourceImage} onChange={setSourceImage} />
+                  {project?.imageUrl && !sourceImage ? (
+                    <div className="space-y-3">
+                      <div className="relative rounded-lg overflow-hidden border bg-muted/20">
+                        <img 
+                          src={project.imageUrl.startsWith('/objects/') 
+                            ? `${window.location.origin}${project.imageUrl}` 
+                            : project.imageUrl
+                          }
+                          alt="Project default"
+                          className="w-full h-48 object-cover"
+                        />
+                        <div className="absolute top-2 right-2">
+                          <span className="inline-flex items-center gap-1 rounded-md bg-background/90 px-2 py-1 text-xs font-medium backdrop-blur-sm">
+                            <Info className="w-3 h-3" />
+                            Default
+                          </span>
+                        </div>
+                      </div>
+                      <ImageUploader value={sourceImage} onChange={setSourceImage} />
+                      <p className="text-xs text-muted-foreground">
+                        Upload a different image to override the project default
+                      </p>
+                    </div>
+                  ) : (
+                    <ImageUploader value={sourceImage} onChange={setSourceImage} />
+                  )}
                 </div>
               )}
 
@@ -372,11 +419,30 @@ export default function GenerateVideo() {
                 </>
               )}
 
-              <PromptBuilder
-                value={prompt}
-                onChange={setPrompt}
-                showHelpers={false}
-              />
+              <div className="space-y-3">
+                <PromptBuilder
+                  value={prompt}
+                  onChange={setPrompt}
+                  showHelpers={false}
+                />
+                
+                {project?.globalPrompt && (
+                  <div className="rounded-lg border bg-muted/20 p-4">
+                    <div className="flex items-start gap-2">
+                      <Info className="w-4 h-4 mt-0.5 text-muted-foreground shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium mb-1">Project Global Prompt</p>
+                        <p className="text-sm text-muted-foreground break-words">
+                          {project.globalPrompt}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          This will be automatically added to your prompt when generating
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <div>
                 <Label htmlFor="negative-prompt" className="text-sm font-semibold">
@@ -478,6 +544,91 @@ export default function GenerateVideo() {
             </Button>
           </div>
         </form>
+
+        <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+          <DialogContent className="max-w-2xl" data-testid="dialog-confirm-generation">
+            <DialogHeader>
+              <DialogTitle>Confirm Video Generation</DialogTitle>
+              <DialogDescription>
+                Review the complete prompt before generating your video
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4 py-4">
+              <div>
+                <Label className="text-sm font-semibold">Video Name</Label>
+                <p className="text-sm mt-1">{videoName}</p>
+              </div>
+
+              <div>
+                <Label className="text-sm font-semibold">Model</Label>
+                <p className="text-sm mt-1">{selectedModelMeta.name}</p>
+              </div>
+
+              <div>
+                <Label className="text-sm font-semibold">Complete Prompt</Label>
+                <div className="mt-2 rounded-lg border bg-muted/50 p-4">
+                  <p className="text-sm whitespace-pre-wrap break-words">
+                    {finalPrompt}
+                  </p>
+                </div>
+                {project?.globalPrompt && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Combined: Your prompt + Global prompt
+                  </p>
+                )}
+              </div>
+
+              {negativePrompt && (
+                <div>
+                  <Label className="text-sm font-semibold">Negative Prompt</Label>
+                  <p className="text-sm text-muted-foreground mt-1 break-words">
+                    {negativePrompt}
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <Label className="text-sm font-semibold">Resolution</Label>
+                <p className="text-sm mt-1">{resolution}</p>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowConfirmDialog(false)}
+                data-testid="button-cancel-generation"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleConfirmGeneration}
+                disabled={generateMutation.isPending || isUploading}
+                data-testid="button-confirm-generation"
+              >
+                {isUploading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Uploading...
+                  </>
+                ) : generateMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    Confirm & Generate
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
