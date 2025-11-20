@@ -3,9 +3,16 @@
 ## Overview
 VideoForge is an AI video generation platform leveraging Alibaba Cloud's Wan API via DashScope to create videos. It supports 13 Wan models across six generation categories (text-to-video, image-to-video, text-to-image, image-to-image, animation, keyframe-to-video), offering features like negative prompts, custom audio, and optimized resolutions. The platform provides a modern workspace for managing video generation projects, tracking real-time progress, and organizing content, aiming to simplify AI-driven video creation for users.
 
-## Recent Changes (November 18, 2025)
+## Recent Changes (November 20, 2025)
 
-**New Features: Project Management & Video Storage (Latest)**
+**UI/UX Improvements (Latest)**
+1. **Image Upload Fix**: ImageUploader component now syncs preview state with value prop using useEffect, ensuring image previews appear immediately on first upload without requiring retry attempts.
+
+2. **Audio Filename Display**: Video tiles now display the original filename of custom audio files in a badge at the bottom of the thumbnail with music icon and truncated text. Added `audioFilename` field to videos schema to store original filename.
+
+**Previous Updates (November 18, 2025)**
+
+**New Features: Project Management & Video Storage**
 1. **Dashboard Statistics**: Welcome page now displays total project and video stats across all projects (total projects, total videos, completed videos, success rate, total duration).
 
 2. **Project Image Upload**: Projects can now have a default image that's used automatically for image-based models when no image is provided during video generation.
