@@ -46,6 +46,8 @@ export class MemStorage implements IStorage {
       ...insertProject,
       id,
       globalPrompt: insertProject.globalPrompt ?? null,
+      imageUrl: insertProject.imageUrl ?? null,
+      defaultModel: insertProject.defaultModel ?? null,
       createdAt: new Date(),
     };
     this.projects.set(id, project);
@@ -103,6 +105,7 @@ export class MemStorage implements IStorage {
       negativePrompt: insertVideo.negativePrompt ?? null,
       audioMode: insertVideo.audioMode ?? null,
       audioUrl: insertVideo.audioUrl ?? null,
+      audioFilename: insertVideo.audioFilename ?? null,
       taskId: null,
       duration: null,
       errorMessage: null,

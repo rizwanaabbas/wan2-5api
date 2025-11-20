@@ -317,6 +317,7 @@ export default function GenerateVideo() {
       lastKeyframeUrl,
       audioMode,
       audioUrl: audioUrl || undefined,
+      audioFilename: customAudio?.name || undefined,
     });
   };
 

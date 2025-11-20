@@ -149,6 +149,20 @@ export function VideoCard({ video, onPlay, onDownload, onEdit }: VideoCardProps)
           </Badge>
           {getStatusBadge()}
         </div>
+
+        {/* Audio filename indicator below thumbnail */}
+        {video.audioMode === "custom" && video.audioFilename && (
+          <div className="absolute bottom-2 left-2 right-2">
+            <Badge 
+              variant="secondary" 
+              className="bg-background/90 backdrop-blur-sm w-full justify-start truncate text-xs"
+              data-testid={`badge-audio-filename-${video.id}`}
+            >
+              <Music className="w-3 h-3 mr-1 flex-shrink-0" />
+              <span className="truncate">{video.audioFilename}</span>
+            </Badge>
+          </div>
+        )}
       </div>
 
       <div className="p-4 space-y-3">

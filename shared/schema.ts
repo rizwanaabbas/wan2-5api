@@ -31,6 +31,7 @@ export const videos = pgTable("videos", {
   lastKeyframeUrl: text("last_keyframe_url"), // For keyframe-to-video
   audioMode: varchar("audio_mode").default("auto"), // "auto", "custom", "silent"
   audioUrl: text("audio_url"), // For custom audio
+  audioFilename: text("audio_filename"), // Original filename for custom audio
   duration: integer("duration"), // in seconds
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

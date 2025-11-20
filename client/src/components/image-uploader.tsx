@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Upload, X, Image as ImageIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,17 +12,27 @@ export function ImageUploader({ value, onChange }: ImageUploaderProps) {
   const [preview, setPreview] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
+  // Sync preview with value prop to ensure consistency
+  useEffect(() => {
+    if (value) {
+      // Create preview from the file
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreview(reader.result as string);
+      };
+      reader.readAsDataURL(value);
+    } else {
+      // Clear preview when value is null
+      setPreview(null);
+    }
+  }, [value]);
+
   const handleFile = useCallback((file: File) => {
     if (!file.type.startsWith("image/")) {
       return;
     }
 
     onChange(file);
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setPreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
   }, [onChange]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {

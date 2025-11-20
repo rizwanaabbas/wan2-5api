@@ -145,13 +145,12 @@ async function startVideoGenerationJob(
       return url; // External URL, keep as-is
     };
 
-    // Convert all media URLs to base64
+    // Convert all media URLs to base64 (except audio - Wan API doesn't support base64 for audio)
     if (options.imageUrl) {
       imageDataUrl = await convertToBase64(options.imageUrl);
     }
-    if (options.audioUrl) {
-      audioDataUrl = await convertToBase64(options.audioUrl);
-    }
+    // Keep audio URL as public URL - Wan API doesn't support base64 audio
+    // audioDataUrl is already set to options.audioUrl
     if (options.firstKeyframeUrl) {
       firstKeyframeDataUrl = await convertToBase64(options.firstKeyframeUrl);
     }
