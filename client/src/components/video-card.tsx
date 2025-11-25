@@ -170,7 +170,9 @@ export function VideoCard({ video, onPlay, onDownload, onEdit }: VideoCardProps)
           <h3 className="font-semibold text-sm mb-1 truncate" data-testid={`text-video-name-${video.id}`}>
             {video.name}
           </h3>
-          <p className="text-xs text-muted-foreground line-clamp-2">{video.prompt}</p>
+          <div className="max-h-12 overflow-y-auto text-xs text-muted-foreground border border-border/50 rounded p-2 bg-muted/30" data-testid={`text-prompt-${video.id}`}>
+            {video.prompt}
+          </div>
         </div>
 
         <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">

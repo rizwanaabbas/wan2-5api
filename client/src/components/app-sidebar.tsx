@@ -1,4 +1,4 @@
-import { Folder, Plus, Film, Settings, Trash2, Edit2 } from "lucide-react";
+import { Folder, Plus, Film, Settings, Trash2, Edit2, Sparkles } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import {
   Sidebar,

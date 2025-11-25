@@ -12,6 +12,7 @@ import { ProjectDialog } from "@/components/project-dialog";
 import { DeleteConfirmDialog } from "@/components/delete-confirm-dialog";
 import Dashboard from "@/pages/dashboard";
 import GenerateVideo from "@/pages/generate-video";
+import GenerateImages from "@/pages/generate-images";
 import Login from "@/pages/login";
 import NotFound from "@/pages/not-found";
 import { Project } from "@shared/schema";
@@ -23,6 +24,7 @@ function Router() {
     <Switch>
       <Route path="/project/:id" component={Dashboard} />
       <Route path="/project/:id/generate" component={GenerateVideo} />
+      <Route path="/project/:id/generate-images" component={GenerateImages} />
       <Route path="/" component={Dashboard} />
       <Route component={NotFound} />
     </Switch>

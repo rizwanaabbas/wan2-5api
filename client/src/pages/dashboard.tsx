@@ -7,7 +7,7 @@ import { VideoPlayer } from "@/components/video-player";
 import { EditVideoDialog } from "@/components/edit-video-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Video as VideoIcon, Loader2, BarChart3, Clock, CheckCircle, XCircle, ExternalLink } from "lucide-react";
+import { Plus, Video as VideoIcon, Loader2, BarChart3, Clock, CheckCircle, XCircle, ExternalLink, Sparkles } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -241,12 +241,20 @@ export default function Dashboard() {
               {videos.length} video{videos.length !== 1 ? "s" : ""}
             </p>
           </div>
-          <Link href={`/project/${projectId}/generate`}>
-            <Button size="lg" data-testid="button-generate-video">
-              <Plus className="w-5 h-5 mr-2" />
-              Generate Video
-            </Button>
-          </Link>
+          <div className="flex gap-3">
+            <Link href={`/project/${projectId}/generate-images`}>
+              <Button variant="outline" data-testid="button-create-storyboard">
+                <Sparkles className="w-5 h-5 mr-2" />
+                Create Storyboard
+              </Button>
+            </Link>
+            <Link href={`/project/${projectId}/generate`}>
+              <Button size="lg" data-testid="button-generate-video">
+                <Plus className="w-5 h-5 mr-2" />
+                Generate Video
+              </Button>
+            </Link>
+          </div>
         </div>
 
         {/* Usage Statistics */}
