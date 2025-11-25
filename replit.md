@@ -13,13 +13,20 @@ VideoForge is an AI video generation platform leveraging Alibaba Cloud's Wan API
    - T2I: Simple text prompt input
    - I2I: Upload multiple source images + transformation prompt
 4. **Image Preview Display**: Generated images shown side-by-side with prompts for easy review
-5. **Download Individual Images**: Each preview image can be downloaded directly
+5. **Download Individual Images**: Each preview image can be downloaded via server proxy (bypasses CORS)
 6. **Storyboard Persistence**:
    - Save complete storyboards to database with all generated images
    - Each image stored with metadata (prompt, source images, generation order)
    - Storyboards attached to projects for easy reference and reuse
    - Storyboard names and creation dates tracked
-7. **Database Tables**: 
+7. **View and Edit Existing Storyboards**:
+   - List all saved storyboards for a project
+   - Click to view and edit any storyboard
+   - Load existing images with proper ordering
+   - Add new prompts and generate additional images
+   - Save new images to existing storyboard
+   - Delete storyboards with confirmation dialog
+8. **Database Tables**: 
    - `storyboards`: Stores storyboard metadata (id, projectId, name, generationType, createdAt)
    - `storyboard_images`: Stores individual images (id, storyboardId, prompt, sourceImages, generatedImageUrl, order, createdAt)
 

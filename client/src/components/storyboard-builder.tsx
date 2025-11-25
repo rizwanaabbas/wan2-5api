@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Storyboard, StoryboardImage } from "@shared/schema";
 
 const RESOLUTION_OPTIONS = [
   { label: "1:1 (1024×1024)", value: "1024*1024" },
@@ -41,15 +42,18 @@ interface StoryboardPrompt {
   isGenerating: boolean;
 }
 
+type StoryboardWithImages = Storyboard & { images: StoryboardImage[] };
+
 interface StoryboardBuilderProps {
   onComplete: (prompts: StoryboardPrompt[]) => void;
   onCancel: () => void;
   projectGlobalPrompt?: string;
   generationType: "t2i" | "i2i";
   projectId: string;
+  existingStoryboard?: StoryboardWithImages;
 }
 
-export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, generationType, projectId }: StoryboardBuilderProps) {
+export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, generationType, projectId, existingStoryboard }: StoryboardBuilderProps) {
   const [prompts, setPrompts] = useState<StoryboardPrompt[]>([
     { id: "1", text: "", sourceImages: [], generatedImages: [], isGenerating: false },
   ]);
@@ -68,6 +72,76 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
   // Image viewer state
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerImage, setViewerImage] = useState<GeneratedImageWithPrompt | null>(null);
+
+  // Track edit mode
+  const isEditMode = !!existingStoryboard;
+
+  // Safe JSON parse helper
+  const safeParseJson = (jsonString: string | null): string[] => {
+    if (!jsonString) return [];
+    try {
+      const parsed = JSON.parse(jsonString);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  // Load existing storyboard data when in edit mode
+  useEffect(() => {
+    if (existingStoryboard && existingStoryboard.images) {
+      setStoryboardName(existingStoryboard.name);
+      
+      // Sort images by order field to maintain proper sequencing
+      const sortedImages = [...existingStoryboard.images].sort((a, b) => a.order - b.order);
+      
+      // Group images by prompt text (or create one prompt with all images if same prompt)
+      const imagesByPrompt = new Map<string, StoryboardImage[]>();
+      sortedImages.forEach(img => {
+        const key = img.prompt;
+        if (!imagesByPrompt.has(key)) {
+          imagesByPrompt.set(key, []);
+        }
+        imagesByPrompt.get(key)!.push(img);
+      });
+
+      // Create prompts from grouped images
+      const loadedPrompts: StoryboardPrompt[] = [];
+      let promptId = 1;
+      
+      imagesByPrompt.forEach((images, promptText) => {
+        const sourceImages = safeParseJson(images[0].sourceImages);
+        
+        loadedPrompts.push({
+          id: String(promptId),
+          text: promptText,
+          sourceImages,
+          generatedImages: images.map((img) => ({
+            prompt: img.prompt,
+            sourceImages: safeParseJson(img.sourceImages),
+            generatedImageUrl: img.generatedImageUrl,
+            order: img.order,
+          })),
+          isGenerating: false,
+        });
+        promptId++;
+      });
+
+      // If no images exist yet, add an empty prompt
+      if (loadedPrompts.length === 0) {
+        loadedPrompts.push({
+          id: "1",
+          text: "",
+          sourceImages: [],
+          generatedImages: [],
+          isGenerating: false,
+        });
+      }
+
+      setPrompts(loadedPrompts);
+      setSelectedPromptId(loadedPrompts[0].id);
+    }
+  }, [existingStoryboard]);
 
   const addPrompt = () => {
     const newId = (Math.max(...prompts.map(p => parseInt(p.id) || 0)) + 1).toString();
@@ -313,37 +387,76 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
 
       setIsSaving(true);
 
-      // Create storyboard
-      const storyboardRes = await apiRequest("POST", "/api/storyboards", {
-        projectId,
-        name: storyboardName,
-        generationType,
-      });
-      const storyboardData = await storyboardRes.json();
-      const storyboardId = storyboardData.storyboard.id;
+      let storyboardId: string;
 
-      // Save all generated images
-      let order = 0;
-      for (const prompt of prompts) {
-        for (const img of prompt.generatedImages) {
-          await apiRequest("POST", `/api/storyboards/${storyboardId}/images`, {
-            prompt: img.prompt,
-            sourceImages: img.sourceImages.length > 0 ? img.sourceImages : null,
-            generatedImageUrl: img.generatedImageUrl,
-            order,
-          });
-          order++;
+      if (isEditMode && existingStoryboard) {
+        // In edit mode, use existing storyboard ID
+        storyboardId = existingStoryboard.id;
+        
+        // Get existing image URLs to avoid duplicates
+        const existingImageUrls = new Set(existingStoryboard.images.map(img => img.generatedImageUrl));
+        
+        // Calculate next order based on max existing order + 1 (not array length)
+        const maxExistingOrder = existingStoryboard.images.length > 0 
+          ? Math.max(...existingStoryboard.images.map(img => img.order))
+          : -1;
+        let nextOrder = maxExistingOrder + 1;
+        
+        // Only add new images that don't already exist
+        for (const prompt of prompts) {
+          for (const img of prompt.generatedImages) {
+            if (!existingImageUrls.has(img.generatedImageUrl)) {
+              await apiRequest("POST", `/api/storyboards/${storyboardId}/images`, {
+                prompt: img.prompt,
+                sourceImages: img.sourceImages.length > 0 ? img.sourceImages : null,
+                generatedImageUrl: img.generatedImageUrl,
+                order: nextOrder,
+              });
+              nextOrder++;
+            }
+          }
         }
-      }
 
-      toast({
-        title: "Storyboard saved",
-        description: `"${storyboardName}" has been saved successfully`,
-      });
+        toast({
+          title: "Storyboard updated",
+          description: `"${storyboardName}" has been updated with new images`,
+        });
+      } else {
+        // Create new storyboard
+        const storyboardRes = await apiRequest("POST", "/api/storyboards", {
+          projectId,
+          name: storyboardName,
+          generationType,
+        });
+        const storyboardData = await storyboardRes.json();
+        storyboardId = storyboardData.storyboard.id;
+
+        // Save all generated images
+        let order = 0;
+        for (const prompt of prompts) {
+          for (const img of prompt.generatedImages) {
+            await apiRequest("POST", `/api/storyboards/${storyboardId}/images`, {
+              prompt: img.prompt,
+              sourceImages: img.sourceImages.length > 0 ? img.sourceImages : null,
+              generatedImageUrl: img.generatedImageUrl,
+              order,
+            });
+            order++;
+          }
+        }
+
+        toast({
+          title: "Storyboard saved",
+          description: `"${storyboardName}" has been saved successfully`,
+        });
+      }
 
       setShowSaveDialog(false);
       setIsSaving(false);
-      setStoryboardName("");
+      
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "storyboards"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/storyboards", storyboardId] });
 
       return storyboardId;
     },
@@ -359,12 +472,18 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
 
   const selectedPrompt = prompts.find(p => p.id === selectedPromptId);
   const totalGeneratedImages = prompts.reduce((sum, p) => sum + p.generatedImages.length, 0);
+  const existingImagesCount = existingStoryboard?.images.length || 0;
+  const newImagesCount = totalGeneratedImages - existingImagesCount;
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold mb-2">Create Storyboard</h2>
-        <p className="text-muted-foreground">Add multiple prompts and generate preview images before creating the final video</p>
+        <h2 className="text-2xl font-bold mb-2">{isEditMode ? "Edit Storyboard" : "Create Storyboard"}</h2>
+        <p className="text-muted-foreground">
+          {isEditMode 
+            ? "Add more prompts and generate additional preview images" 
+            : "Add multiple prompts and generate preview images before creating the final video"}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -615,7 +734,7 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
       {/* Save Dialog */}
       {showSaveDialog && (
         <Card className="p-4 space-y-4 border-2 border-primary/20">
-          <h3 className="font-semibold">Save Storyboard</h3>
+          <h3 className="font-semibold">{isEditMode ? "Update Storyboard" : "Save Storyboard"}</h3>
           <div>
             <Label htmlFor="storyboard-name" className="text-sm mb-2 block">Storyboard Name</Label>
             <Input
@@ -623,9 +742,15 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
               placeholder="e.g., Summer Vacation Story"
               value={storyboardName}
               onChange={(e) => setStoryboardName(e.target.value)}
+              disabled={isEditMode}
               data-testid="input-storyboard-name"
             />
           </div>
+          {isEditMode && newImagesCount > 0 && (
+            <p className="text-sm text-muted-foreground">
+              Adding {newImagesCount} new image{newImagesCount !== 1 ? "s" : ""} to this storyboard.
+            </p>
+          )}
           <div className="flex gap-3 justify-end">
             <Button
               variant="outline"
@@ -636,18 +761,18 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
             </Button>
             <Button
               onClick={() => saveStoryboardMutation.mutate()}
-              disabled={isSaving || !storyboardName.trim() || totalGeneratedImages === 0}
+              disabled={isSaving || !storyboardName.trim() || (isEditMode ? newImagesCount === 0 : totalGeneratedImages === 0)}
               data-testid="button-confirm-save"
             >
               {isSaving ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Saving...
+                  {isEditMode ? "Updating..." : "Saving..."}
                 </>
               ) : (
                 <>
                   <Save className="w-4 h-4 mr-2" />
-                  Save Storyboard
+                  {isEditMode ? "Update Storyboard" : "Save Storyboard"}
                 </>
               )}
             </Button>
@@ -662,16 +787,16 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
           onClick={onCancel}
           data-testid="button-cancel-storyboard"
         >
-          Cancel
+          {isEditMode ? "Back" : "Cancel"}
         </Button>
         <Button
           variant="outline"
           onClick={() => setShowSaveDialog(true)}
-          disabled={totalGeneratedImages === 0 || showSaveDialog}
+          disabled={(isEditMode ? newImagesCount === 0 : totalGeneratedImages === 0) || showSaveDialog}
           data-testid="button-save-storyboard"
         >
           <Save className="w-4 h-4 mr-2" />
-          Save for Later
+          {isEditMode ? "Save New Images" : "Save for Later"}
         </Button>
         <Button
           onClick={() => onComplete(prompts)}
