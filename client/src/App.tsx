@@ -31,7 +31,7 @@ function Router() {
   );
 }
 
-function AppContent() {
+function AuthenticatedApp() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   
@@ -39,12 +39,6 @@ function AppContent() {
   const [projectDialogMode, setProjectDialogMode] = useState<"create" | "rename">("create");
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-
-  // Check authentication on mount
-  const { data: session, isLoading: sessionLoading } = useQuery<{ authenticated: boolean; userId?: string }>({
-    queryKey: ["/api/session"],
-    retry: false,
-  });
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
@@ -55,19 +49,6 @@ function AppContent() {
       setLocation("/login");
     },
   });
-
-  // If not authenticated, show login page
-  if (sessionLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-muted-foreground">Loading...</p>
-      </div>
-    );
-  }
-
-  if (!session?.authenticated) {
-    return <Login />;
-  }
 
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ["/api/projects"],
@@ -182,39 +163,32 @@ function AppContent() {
     }
   };
 
-  const sidebarStyle = {
-    "--sidebar-width": "20rem",
-    "--sidebar-width-icon": "4rem",
-  };
-
   return (
-    <SidebarProvider style={sidebarStyle as React.CSSProperties}>
-      <div className="flex h-screen w-full">
-        <AppSidebar
-          projects={projects}
-          videoCounts={videoCounts}
-          onCreateProject={handleCreateProject}
-          onRenameProject={handleRenameProject}
-          onDeleteProject={handleDeleteProject}
-        />
-        <div className="flex flex-col flex-1">
-          <header className="flex items-center justify-between p-4 border-b">
-            <SidebarTrigger data-testid="button-sidebar-toggle" />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => logoutMutation.mutate()}
-              disabled={logoutMutation.isPending}
-              data-testid="button-logout"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
-            </Button>
-          </header>
-          <main className="flex-1 overflow-auto">
-            <Router />
-          </main>
-        </div>
+    <div className="flex h-screen w-full">
+      <AppSidebar
+        projects={projects}
+        videoCounts={videoCounts}
+        onCreateProject={handleCreateProject}
+        onRenameProject={handleRenameProject}
+        onDeleteProject={handleDeleteProject}
+      />
+      <div className="flex flex-col flex-1">
+        <header className="flex items-center justify-between p-4 border-b">
+          <SidebarTrigger data-testid="button-sidebar-toggle" />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => logoutMutation.mutate()}
+            disabled={logoutMutation.isPending}
+            data-testid="button-logout"
+          >
+            <LogOut className="w-4 h-4 mr-2" />
+            Logout
+          </Button>
+        </header>
+        <main className="flex-1 overflow-auto">
+          <Router />
+        </main>
       </div>
 
       <ProjectDialog
@@ -232,15 +206,46 @@ function AppContent() {
         project={selectedProject}
         videoCount={selectedProject ? videoCounts[selectedProject.id] || 0 : 0}
       />
+    </div>
+  );
+}
+
+function AuthGuard() {
+  // Check authentication on mount
+  const { data: session, isLoading: sessionLoading } = useQuery<{ authenticated: boolean; userId?: string }>({
+    queryKey: ["/api/session"],
+    retry: false,
+  });
+
+  if (sessionLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
+
+  if (!session?.authenticated) {
+    return <Login />;
+  }
+
+  return (
+    <SidebarProvider style={style as React.CSSProperties}>
+      <AuthenticatedApp />
     </SidebarProvider>
   );
 }
+
+const style = {
+  "--sidebar-width": "20rem",
+  "--sidebar-width-icon": "4rem",
+};
 
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AppContent />
+        <AuthGuard />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
