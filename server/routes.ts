@@ -3,8 +3,32 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { insertProjectSchema, insertVideoSchema, insertStoryboardSchema, insertStoryboardImageSchema } from "@shared/schema";
-import { generateWanVideo, getWanSize, generateTextToImage, generateImageToImage } from "./wan";
+import { generateWanVideo, getWanSize, generateTextToImage, generateImageToImage, startTextToImageTask, startImageToImageTask, checkImageTaskStatus } from "./wan";
 import { scryptSync, randomBytes } from "crypto";
+
+// In-memory task store for image generation progress tracking
+interface ImageTask {
+  id: string;
+  type: "t2i" | "i2i";
+  status: "pending" | "processing" | "completed" | "failed";
+  progress: number;
+  imageUrl?: string;
+  error?: string;
+  dashscopeTaskId?: string;
+  createdAt: Date;
+}
+
+const imageTasks = new Map<string, ImageTask>();
+
+// Cleanup old tasks periodically (keep for 1 hour)
+setInterval(() => {
+  const oneHourAgo = Date.now() - 60 * 60 * 1000;
+  Array.from(imageTasks.entries()).forEach(([id, task]) => {
+    if (task.createdAt.getTime() < oneHourAgo) {
+      imageTasks.delete(id);
+    }
+  });
+}, 5 * 60 * 1000); // Run every 5 minutes
 
 // Helper to get the public base URL from environment or default
 function getPublicBaseUrl(): string {
@@ -678,6 +702,118 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("I2I generation error:", error);
       res.status(500).json({ error: error instanceof Error ? error.message : "Image generation failed" });
+    }
+  });
+
+  // Task-based image generation endpoints (for progress tracking)
+  app.post("/api/generate/text-to-image/start", async (req, res) => {
+    try {
+      const { prompt, size = "1024*1024" } = req.body;
+
+      if (!prompt || typeof prompt !== "string") {
+        return res.status(400).json({ error: "Prompt is required" });
+      }
+
+      const formattedSize = size.includes("x") ? size.replace("x", "*") : size;
+      const dashscopeTaskId = await startTextToImageTask(prompt, formattedSize);
+      
+      // Create local task entry for tracking
+      const taskId = `t2i_${Date.now()}_${dashscopeTaskId}`;
+      imageTasks.set(taskId, {
+        id: taskId,
+        type: "t2i",
+        status: "processing",
+        progress: 10,
+        createdAt: new Date(),
+      });
+
+      // Store the DashScope task ID mapping
+      imageTasks.get(taskId)!.dashscopeTaskId = dashscopeTaskId;
+
+      res.json({ success: true, taskId, dashscopeTaskId });
+    } catch (error) {
+      console.error("T2I start error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to start image generation" });
+    }
+  });
+
+  app.post("/api/generate/image-to-image/start", async (req, res) => {
+    try {
+      const { prompt, imageUrls, size = "1024*1024" } = req.body;
+
+      if (!prompt || typeof prompt !== "string") {
+        return res.status(400).json({ error: "Prompt is required" });
+      }
+
+      if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length === 0) {
+        return res.status(400).json({ error: "At least one image URL is required" });
+      }
+
+      const formattedSize = size.includes("x") ? size.replace("x", "*") : size;
+      const dashscopeTaskId = await startImageToImageTask(prompt, imageUrls, formattedSize);
+      
+      // Create local task entry for tracking
+      const taskId = `i2i_${Date.now()}_${dashscopeTaskId}`;
+      imageTasks.set(taskId, {
+        id: taskId,
+        type: "i2i",
+        status: "processing",
+        progress: 10,
+        createdAt: new Date(),
+      });
+
+      // Store the DashScope task ID mapping
+      imageTasks.get(taskId)!.dashscopeTaskId = dashscopeTaskId;
+
+      res.json({ success: true, taskId, dashscopeTaskId });
+    } catch (error) {
+      console.error("I2I start error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to start image generation" });
+    }
+  });
+
+  app.get("/api/generate/task/:taskId", async (req, res) => {
+    try {
+      const { taskId } = req.params;
+      const task = imageTasks.get(taskId);
+
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+
+      // If already completed or failed, return cached result
+      if (task.status === "completed" || task.status === "failed") {
+        return res.json({
+          status: task.status,
+          progress: task.progress,
+          imageUrl: task.imageUrl,
+          error: task.error,
+        });
+      }
+
+      // Check DashScope task status
+      const dashscopeTaskId = (task as any).dashscopeTaskId;
+      if (!dashscopeTaskId) {
+        return res.status(500).json({ error: "Missing DashScope task ID" });
+      }
+
+      const result = await checkImageTaskStatus(dashscopeTaskId);
+      
+      // Update local task cache
+      task.status = result.status;
+      task.progress = result.progress;
+      if (result.imageUrl) task.imageUrl = result.imageUrl;
+      if (result.error) task.error = result.error;
+
+      res.json({
+        status: task.status,
+        progress: task.progress,
+        imageUrl: task.imageUrl,
+        error: task.error,
+      });
+    } catch (error) {
+      console.error("Task status check error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to check task status" });
     }
   });
 

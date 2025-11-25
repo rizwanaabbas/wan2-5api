@@ -423,6 +423,192 @@ async function pollImageTask(
   throw new Error("Image generation timed out after 10 minutes");
 }
 
+// Task-based API for frontend progress tracking
+export interface ImageTaskResult {
+  status: "pending" | "processing" | "completed" | "failed";
+  progress: number;
+  imageUrl?: string;
+  error?: string;
+}
+
+export async function startTextToImageTask(
+  prompt: string,
+  size: string = "1024*1024"
+): Promise<string> {
+  if (!process.env.DASHSCOPE_API_KEY) {
+    throw new Error("DASHSCOPE_API_KEY not configured.");
+  }
+
+  const response = await fetch(
+    "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis",
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.DASHSCOPE_API_KEY}`,
+        "Content-Type": "application/json",
+        "X-DashScope-Async": "enable",
+      },
+      body: JSON.stringify({
+        model: "wan2.5-t2i-preview",
+        input: {
+          prompt,
+        },
+        parameters: {
+          size,
+          n: 1,
+        },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("T2I task submission failed:", errorText);
+    throw new Error(`Failed to submit T2I task: ${response.statusText} - ${errorText}`);
+  }
+
+  const result = await response.json();
+  
+  if (!result.output?.task_id) {
+    console.error("No task ID in response:", result);
+    throw new Error("No task ID returned from API");
+  }
+
+  console.log(`T2I task started: ${result.output.task_id}, Prompt: "${prompt.substring(0, 50)}...", Size: ${size}`);
+  return result.output.task_id;
+}
+
+export async function startImageToImageTask(
+  prompt: string,
+  imageUrls: string[],
+  size: string = "1024*1024"
+): Promise<string> {
+  if (!process.env.DASHSCOPE_API_KEY) {
+    throw new Error("DASHSCOPE_API_KEY not configured.");
+  }
+
+  if (!imageUrls || imageUrls.length === 0) {
+    throw new Error("At least one image URL is required for image-to-image generation");
+  }
+
+  const response = await fetch(
+    "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/image2image/image-synthesis",
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.DASHSCOPE_API_KEY}`,
+        "Content-Type": "application/json",
+        "X-DashScope-Async": "enable",
+      },
+      body: JSON.stringify({
+        model: "wan2.5-i2i-preview",
+        input: {
+          prompt,
+          images: imageUrls,
+        },
+        parameters: {
+          size,
+          n: 1,
+        },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("I2I task submission failed:", errorText);
+    throw new Error(`Failed to submit I2I task: ${response.statusText} - ${errorText}`);
+  }
+
+  const result = await response.json();
+  
+  if (!result.output?.task_id) {
+    console.error("No task ID in response:", result);
+    throw new Error("No task ID returned from API");
+  }
+
+  console.log(`I2I task started: ${result.output.task_id}, Prompt: "${prompt.substring(0, 50)}...", Images: ${imageUrls.length}, Size: ${size}`);
+  return result.output.task_id;
+}
+
+export async function checkImageTaskStatus(taskId: string): Promise<ImageTaskResult> {
+  if (!process.env.DASHSCOPE_API_KEY) {
+    throw new Error("DASHSCOPE_API_KEY not configured.");
+  }
+
+  const response = await fetch(`https://dashscope-intl.aliyuncs.com/api/v1/tasks/${taskId}`, {
+    method: "GET",
+    headers: {
+      "Authorization": `Bearer ${process.env.DASHSCOPE_API_KEY}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`Task status check failed: ${response.statusText}`, errorText);
+    throw new Error(`Failed to check task status: ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  const taskStatus = result.output?.task_status;
+  
+  console.log(`Task ${taskId} status: ${taskStatus}, full output:`, JSON.stringify(result.output, null, 2));
+
+  if (taskStatus === "SUCCEEDED") {
+    // Try multiple possible locations for the image URL
+    const imageUrl = result.output.results?.[0]?.url || 
+                     result.output.results?.[0]?.image_url || 
+                     result.output.image_url ||
+                     result.output.url;
+    
+    console.log(`Task ${taskId} succeeded, found imageUrl:`, imageUrl);
+    
+    if (!imageUrl) {
+      console.error("No image URL in success response:", result.output);
+      return {
+        status: "failed",
+        progress: 100,
+        error: "No image URL returned from API"
+      };
+    }
+    
+    return {
+      status: "completed",
+      progress: 100,
+      imageUrl
+    };
+  } else if (taskStatus === "FAILED") {
+    const errorMsg = result.output.message || result.output.code || "Unknown error";
+    console.error(`Task ${taskId} failed:`, errorMsg);
+    return {
+      status: "failed",
+      progress: 0,
+      error: errorMsg
+    };
+  } else if (taskStatus === "RUNNING" || taskStatus === "PENDING") {
+    // Estimate progress based on typical generation time (~30-60 seconds)
+    const metrics = result.output?.task_metrics;
+    let progress = 20; // Base progress for started task
+    
+    if (metrics?.TOTAL && metrics?.SUCCEEDED !== undefined) {
+      progress = Math.min(90, 20 + Math.floor((metrics.SUCCEEDED / metrics.TOTAL) * 70));
+    }
+    
+    return {
+      status: "processing",
+      progress
+    };
+  }
+
+  // Log unknown status
+  console.log(`Task ${taskId} has unknown status: ${taskStatus}`);
+  
+  return {
+    status: "pending",
+    progress: 10
+  };
+}
+
 export function getWanSize(resolution: string): string {
   // Parse resolution like "1280x720" and convert to "1280*720" format for Wan API
   const parts = resolution.split("x");

@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, X, RefreshCw, Loader2, Check, Upload, Download, Save } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Plus, X, RefreshCw, Loader2, Check, Upload, Download, Save, Eye, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -58,6 +60,14 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  
+  // Progress tracking state
+  const [generationProgress, setGenerationProgress] = useState<number>(0);
+  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
+  
+  // Image viewer state
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerImage, setViewerImage] = useState<GeneratedImageWithPrompt | null>(null);
 
   const addPrompt = () => {
     const newId = (Math.max(...prompts.map(p => parseInt(p.id) || 0)) + 1).toString();
@@ -158,26 +168,14 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
     }
   };
 
-  const generateImageMutation = useMutation({
-    mutationFn: async (params: { type: "t2i" | "i2i"; prompt: string; imageUrls?: string[]; size: string }) => {
-      if (params.type === "t2i") {
-        const res = await apiRequest("POST", "/api/generate/text-to-image", {
-          prompt: params.prompt,
-          size: params.size,
-        });
-        const data = await res.json();
-        return { imageUrl: data.imageUrl };
-      } else {
-        const res = await apiRequest("POST", "/api/generate/image-to-image", {
-          prompt: params.prompt,
-          imageUrls: params.imageUrls,
-          size: params.size,
-        });
-        const data = await res.json();
-        return { imageUrl: data.imageUrl };
-      }
-    },
-  });
+  // Poll for task status
+  const pollTaskStatus = useCallback(async (taskId: string): Promise<{ status: string; progress: number; imageUrl?: string; error?: string }> => {
+    const res = await fetch(`/api/generate/task/${taskId}`);
+    if (!res.ok) {
+      throw new Error("Failed to check task status");
+    }
+    return res.json();
+  }, []);
 
   const generateImage = async (promptId: string) => {
     const prompt = prompts.find(p => p.id === promptId);
@@ -200,6 +198,7 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
     }
 
     setPrompts(prompts.map(p => p.id === promptId ? { ...p, isGenerating: true } : p));
+    setGenerationProgress(5);
 
     try {
       // Combine with global prompt if available
@@ -207,38 +206,101 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
         ? `${prompt.text} ${projectGlobalPrompt}`
         : prompt.text;
 
-      const result = await generateImageMutation.mutateAsync({
-        type: generationType,
+      // Start the generation task
+      const endpoint = generationType === "t2i" 
+        ? "/api/generate/text-to-image/start" 
+        : "/api/generate/image-to-image/start";
+      
+      const startRes = await apiRequest("POST", endpoint, {
         prompt: fullPrompt,
         imageUrls: generationType === "i2i" ? prompt.sourceImages : undefined,
         size: selectedResolution,
       });
       
-      const newImage: GeneratedImageWithPrompt = {
-        prompt: fullPrompt,
-        sourceImages: generationType === "i2i" ? prompt.sourceImages : [],
-        generatedImageUrl: result.imageUrl,
-        order: prompt.generatedImages.length,
-      };
+      const { taskId } = await startRes.json();
+      setCurrentTaskId(taskId);
+      setGenerationProgress(10);
 
-      setPrompts(prompts.map(p => 
-        p.id === promptId 
-          ? { ...p, generatedImages: [newImage, ...p.generatedImages], isGenerating: false }
-          : p
-      ));
+      // Poll for completion
+      let attempts = 0;
+      const maxAttempts = 120; // 2 minutes at 1 second intervals
+      
+      while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        const status = await pollTaskStatus(taskId);
+        setGenerationProgress(status.progress);
+        
+        if (status.status === "completed" && status.imageUrl) {
+          const newImage: GeneratedImageWithPrompt = {
+            prompt: fullPrompt,
+            sourceImages: generationType === "i2i" ? prompt.sourceImages : [],
+            generatedImageUrl: status.imageUrl,
+            order: prompt.generatedImages.length,
+          };
 
-      toast({
-        title: "Image generated",
-        description: "Preview image added to this prompt",
-      });
+          setPrompts(prev => prev.map(p => 
+            p.id === promptId 
+              ? { ...p, generatedImages: [newImage, ...p.generatedImages], isGenerating: false }
+              : p
+          ));
+
+          // Show the generated image in viewer
+          setViewerImage(newImage);
+          setViewerOpen(true);
+
+          toast({
+            title: "Image generated successfully!",
+            description: "Click to view and download your image",
+          });
+          
+          setCurrentTaskId(null);
+          setGenerationProgress(0);
+          return;
+        } else if (status.status === "failed") {
+          throw new Error(status.error || "Image generation failed");
+        }
+        
+        attempts++;
+      }
+
+      throw new Error("Generation timed out");
     } catch (error) {
       toast({
         title: "Generation failed",
         description: error instanceof Error ? error.message : "Failed to generate preview image",
         variant: "destructive",
       });
+      setCurrentTaskId(null);
+      setGenerationProgress(0);
     } finally {
-      setPrompts(prompts.map(p => p.id === promptId ? { ...p, isGenerating: false } : p));
+      setPrompts(prev => prev.map(p => p.id === promptId ? { ...p, isGenerating: false } : p));
+    }
+  };
+
+  // Download image helper
+  const downloadImage = async (imageUrl: string, filename: string) => {
+    try {
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast({
+        title: "Download started",
+        description: "Your image is being downloaded",
+      });
+    } catch (error) {
+      toast({
+        title: "Download failed",
+        description: "Failed to download image",
+        variant: "destructive",
+      });
     }
   };
 
@@ -293,15 +355,6 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
       setIsSaving(false);
     },
   });
-
-  const handleDownloadImage = (imageUrl: string, prompt: string) => {
-    const link = document.createElement("a");
-    link.href = imageUrl;
-    link.download = `${prompt.slice(0, 30).replace(/\s+/g, "_")}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
   const selectedPrompt = prompts.find(p => p.id === selectedPromptId);
   const totalGeneratedImages = prompts.reduce((sum, p) => sum + p.generatedImages.length, 0);
@@ -472,7 +525,7 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
                   {selectedPrompt.isGenerating ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Generating Preview...
+                      Generating... {generationProgress}%
                     </>
                   ) : (
                     <>
@@ -481,6 +534,19 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
                     </>
                   )}
                 </Button>
+                
+                {/* Progress Bar */}
+                {selectedPrompt.isGenerating && (
+                  <div className="space-y-2">
+                    <Progress value={generationProgress} className="w-full h-2" />
+                    <p className="text-xs text-center text-muted-foreground">
+                      {generationProgress < 20 ? "Starting generation..." : 
+                       generationProgress < 50 ? "Processing your request..." : 
+                       generationProgress < 80 ? "Creating your image..." : 
+                       generationProgress < 100 ? "Almost there..." : "Completed!"}
+                    </p>
+                  </div>
+                )}
               </Card>
 
               {/* Generated Images Preview - Side by Side with Prompts */}
@@ -496,16 +562,35 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
                       >
                         <div className="flex items-start justify-between gap-2 mb-2">
                           <Badge variant="secondary">v{idx + 1}</Badge>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleDownloadImage(img.generatedImageUrl, img.prompt)}
-                            data-testid={`button-download-image-${selectedPrompt.id}-${idx}`}
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                          </Button>
+                          <div className="flex gap-1">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => {
+                                setViewerImage(img);
+                                setViewerOpen(true);
+                              }}
+                              data-testid={`button-view-image-${selectedPrompt.id}-${idx}`}
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => downloadImage(img.generatedImageUrl, `generated-${idx + 1}.png`)}
+                              data-testid={`button-download-image-${selectedPrompt.id}-${idx}`}
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
                         </div>
-                        <div className="flex gap-3">
+                        <div 
+                          className="flex gap-3 cursor-pointer hover:bg-muted/50 rounded p-1 -m-1 transition-colors"
+                          onClick={() => {
+                            setViewerImage(img);
+                            setViewerOpen(true);
+                          }}
+                        >
                           <div className="flex-1">
                             <p className="text-xs font-medium text-muted-foreground mb-1">Prompt:</p>
                             <p className="text-sm break-words whitespace-normal">{img.prompt}</p>
@@ -596,6 +681,57 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
           Continue to Video Generation
         </Button>
       </div>
+
+      {/* Image Viewer Dialog */}
+      <Dialog open={viewerOpen} onOpenChange={setViewerOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="w-5 h-5" />
+              Generated Image
+            </DialogTitle>
+          </DialogHeader>
+          
+          {viewerImage && (
+            <div className="space-y-4">
+              {/* Full size image */}
+              <div className="relative bg-muted rounded-lg overflow-hidden">
+                <img
+                  src={viewerImage.generatedImageUrl}
+                  alt="Generated"
+                  className="w-full h-auto max-h-[60vh] object-contain"
+                  data-testid="viewer-image"
+                />
+              </div>
+              
+              {/* Prompt info */}
+              <div className="bg-muted/50 rounded-lg p-4">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Prompt used:</p>
+                <p className="text-sm">{viewerImage.prompt}</p>
+              </div>
+              
+              {/* Action buttons */}
+              <div className="flex gap-3 justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => window.open(viewerImage.generatedImageUrl, '_blank')}
+                  data-testid="button-open-new-tab"
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Open in New Tab
+                </Button>
+                <Button
+                  onClick={() => downloadImage(viewerImage.generatedImageUrl, `generated-image-${Date.now()}.png`)}
+                  data-testid="button-download-viewer"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Image
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
