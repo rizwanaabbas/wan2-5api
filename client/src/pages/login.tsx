@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -18,11 +18,13 @@ export default function Login() {
       const res = await apiRequest("POST", "/api/login", credentials);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast({
         title: "Login successful",
         description: "Welcome to VideoForge!",
       });
+      // Invalidate session query to force refetch and show dashboard
+      await queryClient.invalidateQueries({ queryKey: ["/api/session"] });
       setLocation("/");
     },
     onError: (error: any) => {

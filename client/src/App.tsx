@@ -44,9 +44,16 @@ function AuthenticatedApp() {
     mutationFn: async () => {
       await apiRequest("POST", "/api/logout", {});
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/session"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/session"] });
       setLocation("/login");
+    },
+    onError: () => {
+      toast({
+        title: "Logout failed",
+        description: "Failed to logout",
+        variant: "destructive",
+      });
     },
   });
 
