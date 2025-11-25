@@ -1,14 +1,40 @@
 import express, { type Request, Response, NextFunction } from "express";
+import session from "express-session";
+import memoryStore from "memorystore";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
+
+declare module 'express-session' {
+  interface SessionData {
+    userId?: string;
+  }
+}
 
 declare module 'http' {
   interface IncomingMessage {
     rawBody: unknown
   }
 }
+
+const MemoryStore = memoryStore(session);
+const sessionMiddleware = session({
+  secret: process.env.SESSION_SECRET || "dev-secret-key",
+  resave: false,
+  saveUninitialized: false,
+  store: new MemoryStore({
+    checkPeriod: 86400000,
+  }),
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  },
+});
+
+app.use(sessionMiddleware);
+
 app.use(express.json({
   verify: (req, _res, buf) => {
     req.rawBody = buf;

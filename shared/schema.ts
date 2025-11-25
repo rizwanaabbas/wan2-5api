@@ -3,6 +3,13 @@ import { pgTable, text, varchar, timestamp, integer } from "drizzle-orm/pg-core"
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+export const users = pgTable("users", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: text("email").unique().notNull(),
+  password: text("password").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const projects = pgTable("projects", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
@@ -77,6 +84,15 @@ export type ModelType =
 export type GenerationType = "text-to-video" | "image-to-video" | "text-to-image" | "image-to-image" | "animation" | "keyframe";
 export type VideoStatus = "pending" | "processing" | "completed" | "failed";
 export type AudioMode = "auto" | "custom" | "silent";
+
+export type User = typeof users.$inferSelect;
+
+export const insertUserSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+});
+
+export type InsertUser = z.infer<typeof insertUserSchema>;
 
 export interface ResolutionOption {
   label: string;

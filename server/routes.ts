@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { insertProjectSchema, insertVideoSchema } from "@shared/schema";
 import { generateWanVideo, getWanSize } from "./wan";
+import { scryptSync, randomBytes } from "crypto";
 
 // Helper to get the public base URL from environment or default
 function getPublicBaseUrl(): string {
@@ -23,6 +24,19 @@ function buildPublicAssetUrl(pathOrUrl: string): string {
   }
   
   return pathOrUrl;
+}
+
+// Password hashing helpers
+function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString('hex');
+  const hash = scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password: string, hashedPassword: string): boolean {
+  const [salt, hash] = hashedPassword.split(':');
+  const newHash = scryptSync(password, salt, 64).toString('hex');
+  return newHash === hash;
 }
 
 // Helper function to download and store video from Wan API URL
@@ -545,6 +559,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.sendStatus(404);
       }
       res.status(500).json({ error: "Failed to get base64" });
+    }
+  });
+
+  // Auth routes
+  app.post("/api/login", async (req, res) => {
+    try {
+      const { email, password } = req.body;
+
+      if (!email || !password) {
+        return res.status(400).json({ error: "Email and password required" });
+      }
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      if (!verifyPassword(password, user.password)) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      // Set session
+      req.session.userId = user.id;
+      req.session.save((err) => {
+        if (err) {
+          return res.status(500).json({ error: "Failed to create session" });
+        }
+        res.json({ success: true, user: { id: user.id, email: user.email } });
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  app.post("/api/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ error: "Failed to logout" });
+      }
+      res.json({ success: true });
+    });
+  });
+
+  app.get("/api/session", (req, res) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ authenticated: false });
+    }
+    res.json({ authenticated: true, userId: req.session.userId });
+  });
+
+  // Seed default users endpoint (for initial setup)
+  app.post("/api/seed-users", async (req, res) => {
+    try {
+      const defaultUsers = [
+        { email: "rizwanaabbas@gmail.com", password: "Wan786##" },
+        { email: "rabanasaeed@gmail.com", password: "education@22" },
+      ];
+
+      for (const userEmail of defaultUsers) {
+        const existing = await storage.getUserByEmail(userEmail.email);
+        if (!existing) {
+          const hashedPassword = hashPassword(userEmail.password);
+          await storage.createUser({
+            email: userEmail.email,
+            password: hashedPassword,
+          });
+          console.log(`Created user: ${userEmail.email}`);
+        }
+      }
+
+      res.json({ success: true, message: "Default users seeded" });
+    } catch (error) {
+      console.error("Seed error:", error);
+      res.status(500).json({ error: "Failed to seed users" });
     }
   });
 

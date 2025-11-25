@@ -1,9 +1,13 @@
-import { type Project, type InsertProject, type Video, type InsertVideo, projects, videos } from "@shared/schema";
+import { type Project, type InsertProject, type Video, type InsertVideo, type User, type InsertUser, projects, videos, users } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
 
 export interface IStorage {
+  // Users
+  getUserByEmail(email: string): Promise<User | undefined>;
+  createUser(user: InsertUser & { password: string }): Promise<User>;
+  
   // Projects
   getProject(id: string): Promise<Project | undefined>;
   getAllProjects(): Promise<Project[]>;
@@ -21,12 +25,30 @@ export interface IStorage {
 }
 
 export class MemStorage implements IStorage {
+  private users: Map<string, User>;
   private projects: Map<string, Project>;
   private videos: Map<string, Video>;
 
   constructor() {
+    this.users = new Map();
     this.projects = new Map();
     this.videos = new Map();
+  }
+
+  // Users
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(u => u.email === email);
+  }
+
+  async createUser(user: InsertUser & { password: string }): Promise<User> {
+    const id = randomUUID();
+    const newUser: User = {
+      ...user,
+      id,
+      createdAt: new Date(),
+    };
+    this.users.set(id, newUser);
+    return newUser;
   }
 
   // Projects
@@ -130,6 +152,17 @@ export class MemStorage implements IStorage {
 }
 
 export class DbStorage implements IStorage {
+  // Users
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
+  }
+
+  async createUser(user: InsertUser & { password: string }): Promise<User> {
+    const [newUser] = await db.insert(users).values(user).returning();
+    return newUser;
+  }
+
   // Projects
   async getProject(id: string): Promise<Project | undefined> {
     const [project] = await db.select().from(projects).where(eq(projects.id, id));

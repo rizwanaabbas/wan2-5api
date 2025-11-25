@@ -6,14 +6,17 @@ import { queryClient, apiRequest } from "./lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ProjectDialog } from "@/components/project-dialog";
 import { DeleteConfirmDialog } from "@/components/delete-confirm-dialog";
 import Dashboard from "@/pages/dashboard";
 import GenerateVideo from "@/pages/generate-video";
+import Login from "@/pages/login";
 import NotFound from "@/pages/not-found";
 import { Project } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { LogOut } from "lucide-react";
 
 function Router() {
   return (
@@ -34,6 +37,35 @@ function AppContent() {
   const [projectDialogMode, setProjectDialogMode] = useState<"create" | "rename">("create");
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  // Check authentication on mount
+  const { data: session, isLoading: sessionLoading } = useQuery<{ authenticated: boolean; userId?: string }>({
+    queryKey: ["/api/session"],
+    retry: false,
+  });
+
+  const logoutMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/logout", {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/session"] });
+      setLocation("/login");
+    },
+  });
+
+  // If not authenticated, show login page
+  if (sessionLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
+
+  if (!session?.authenticated) {
+    return <Login />;
+  }
 
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ["/api/projects"],
@@ -166,6 +198,16 @@ function AppContent() {
         <div className="flex flex-col flex-1">
           <header className="flex items-center justify-between p-4 border-b">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => logoutMutation.mutate()}
+              disabled={logoutMutation.isPending}
+              data-testid="button-logout"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Logout
+            </Button>
           </header>
           <main className="flex-1 overflow-auto">
             <Router />
