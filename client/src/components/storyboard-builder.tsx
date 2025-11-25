@@ -9,6 +9,20 @@ import { Plus, X, RefreshCw, Loader2, Check, Upload, Download, Save } from "luci
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+const RESOLUTION_OPTIONS = [
+  { label: "1:1 (1024×1024)", value: "1024*1024" },
+  { label: "1:1 (1280×1280)", value: "1280*1280" },
+  { label: "2:3 (800×1200)", value: "800*1200" },
+  { label: "3:2 (1200×800)", value: "1200*800" },
+  { label: "3:4 (960×1280)", value: "960*1280" },
+  { label: "4:3 (1280×960)", value: "1280*960" },
+  { label: "9:16 (720×1280)", value: "720*1280" },
+  { label: "16:9 (1280×720)", value: "1280*720" },
+  { label: "21:9 (1344×576)", value: "1344*576" },
+  { label: "YouTube Thumb HD (1280×720)", value: "1280*720" },
+];
 
 interface GeneratedImageWithPrompt {
   prompt: string;
@@ -39,6 +53,7 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
   ]);
   const { toast } = useToast();
   const [selectedPromptId, setSelectedPromptId] = useState<string>("1");
+  const [selectedResolution, setSelectedResolution] = useState<string>("1024*1024");
   const [storyboardName, setStoryboardName] = useState<string>("");
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -102,11 +117,11 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
   };
 
   const generateImageMutation = useMutation({
-    mutationFn: async (params: { type: "t2i" | "i2i"; prompt: string; imageUrls?: string[] }) => {
+    mutationFn: async (params: { type: "t2i" | "i2i"; prompt: string; imageUrls?: string[]; size: string }) => {
       if (params.type === "t2i") {
         const res = await apiRequest("POST", "/api/generate/text-to-image", {
           prompt: params.prompt,
-          size: "1024*1024",
+          size: params.size,
         });
         const data = await res.json();
         return { imageUrl: data.imageUrl };
@@ -114,7 +129,7 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
         const res = await apiRequest("POST", "/api/generate/image-to-image", {
           prompt: params.prompt,
           imageUrls: params.imageUrls,
-          size: "1024*1024",
+          size: params.size,
         });
         const data = await res.json();
         return { imageUrl: data.imageUrl };
@@ -154,6 +169,7 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
         type: generationType,
         prompt: fullPrompt,
         imageUrls: generationType === "i2i" ? prompt.sourceImages : undefined,
+        size: selectedResolution,
       });
       
       const newImage: GeneratedImageWithPrompt = {
@@ -318,6 +334,23 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
           {selectedPrompt && (
             <>
               <Card className="p-4 space-y-4">
+                {/* Resolution Selector */}
+                <div className="space-y-2">
+                  <Label htmlFor="resolution-select">Resolution</Label>
+                  <Select value={selectedResolution} onValueChange={setSelectedResolution}>
+                    <SelectTrigger id="resolution-select" data-testid="select-resolution">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {RESOLUTION_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value} data-testid={`option-resolution-${opt.value}`}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 {/* Source Images Section (for I2I only) */}
                 {generationType === "i2i" && (
                   <div className="space-y-2">
