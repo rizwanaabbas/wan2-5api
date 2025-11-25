@@ -57,6 +57,7 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
   const [storyboardName, setStoryboardName] = useState<string>("");
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   const addPrompt = () => {
     const newId = (Math.max(...prompts.map(p => parseInt(p.id) || 0)) + 1).toString();
@@ -100,19 +101,60 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
     ));
   };
 
-  const handleImageUpload = (promptId: string, event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files) return;
+  const uploadImageToStorage = async (file: File): Promise<string> => {
+    // Get upload URL from server
+    const uploadResponse = await fetch("/api/objects/upload", {
+      method: "POST",
+    });
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        if (e.target?.result) {
-          addSourceImage(promptId, e.target.result as string);
-        }
-      };
-      reader.readAsDataURL(file);
+    if (!uploadResponse.ok) {
+      throw new Error("Failed to get upload URL");
+    }
+
+    const { uploadURL, publicUrl } = await uploadResponse.json();
+
+    // Upload file to storage
+    const uploadResult = await fetch(uploadURL, {
+      method: "PUT",
+      body: file,
+      headers: {
+        "Content-Type": file.type,
+      },
+    });
+
+    if (!uploadResult.ok) {
+      throw new Error("Failed to upload image");
+    }
+
+    return publicUrl;
+  };
+
+  const handleImageUpload = async (promptId: string, event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploadingImage(true);
+    
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const publicUrl = await uploadImageToStorage(file);
+        addSourceImage(promptId, publicUrl);
+      }
+      toast({
+        title: "Images uploaded",
+        description: `Successfully uploaded ${files.length} image(s)`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Upload failed",
+        description: error.message || "Failed to upload image",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingImage(false);
+      // Reset the input so the same file can be selected again
+      event.target.value = "";
     }
   };
 
@@ -363,13 +405,23 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
                         onChange={(e) => handleImageUpload(selectedPrompt.id, e)}
                         className="hidden"
                         id={`file-upload-${selectedPrompt.id}`}
+                        disabled={isUploadingImage}
                       />
                       <label 
                         htmlFor={`file-upload-${selectedPrompt.id}`}
-                        className="flex flex-col items-center justify-center cursor-pointer"
+                        className={`flex flex-col items-center justify-center ${isUploadingImage ? 'cursor-wait opacity-50' : 'cursor-pointer'}`}
                       >
-                        <Upload className="w-6 h-6 text-muted-foreground mb-2" />
-                        <span className="text-sm text-muted-foreground">Click to upload images</span>
+                        {isUploadingImage ? (
+                          <>
+                            <Loader2 className="w-6 h-6 text-muted-foreground mb-2 animate-spin" />
+                            <span className="text-sm text-muted-foreground">Uploading images...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-6 h-6 text-muted-foreground mb-2" />
+                            <span className="text-sm text-muted-foreground">Click to upload images</span>
+                          </>
+                        )}
                       </label>
                     </div>
                     {selectedPrompt.sourceImages.length > 0 && (
@@ -413,7 +465,7 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
 
                 <Button
                   onClick={() => generateImage(selectedPrompt.id)}
-                  disabled={selectedPrompt.isGenerating || !selectedPrompt.text.trim() || (generationType === "i2i" && selectedPrompt.sourceImages.length === 0)}
+                  disabled={selectedPrompt.isGenerating || isUploadingImage || !selectedPrompt.text.trim() || (generationType === "i2i" && selectedPrompt.sourceImages.length === 0)}
                   className="w-full"
                   data-testid={`button-generate-${selectedPrompt.id}`}
                 >
