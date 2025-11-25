@@ -46,7 +46,7 @@ function AuthenticatedApp() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/session"] });
-      setLocation("/login");
+      setLocation("/");
     },
     onError: () => {
       toast({

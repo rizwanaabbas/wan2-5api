@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, X, RefreshCw, Loader2, Check } from "lucide-react";
+import { Plus, X, RefreshCw, Loader2, Check, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -13,7 +13,8 @@ import { apiRequest } from "@/lib/queryClient";
 interface StoryboardPrompt {
   id: string;
   text: string;
-  generatedImages: string[]; // Local URLs or base64
+  sourceImages: string[]; // Source image URLs for I2I
+  generatedImages: string[]; // Generated image URLs
   isGenerating: boolean;
 }
 
@@ -21,18 +22,19 @@ interface StoryboardBuilderProps {
   onComplete: (prompts: StoryboardPrompt[]) => void;
   onCancel: () => void;
   projectGlobalPrompt?: string;
+  generationType: "t2i" | "i2i";
 }
 
-export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt }: StoryboardBuilderProps) {
+export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, generationType }: StoryboardBuilderProps) {
   const [prompts, setPrompts] = useState<StoryboardPrompt[]>([
-    { id: "1", text: "", generatedImages: [], isGenerating: false },
+    { id: "1", text: "", sourceImages: [], generatedImages: [], isGenerating: false },
   ]);
   const { toast } = useToast();
   const [selectedPromptId, setSelectedPromptId] = useState<string>("1");
 
   const addPrompt = () => {
     const newId = (Math.max(...prompts.map(p => parseInt(p.id) || 0)) + 1).toString();
-    setPrompts([...prompts, { id: newId, text: "", generatedImages: [], isGenerating: false }]);
+    setPrompts([...prompts, { id: newId, text: "", sourceImages: [], generatedImages: [], isGenerating: false }]);
     setSelectedPromptId(newId);
   };
 
@@ -56,13 +58,56 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt }:
     setPrompts(prompts.map(p => p.id === id ? { ...p, text } : p));
   };
 
-  const generateImageMutation = useMutation({
-    mutationFn: async (promptText: string) => {
-      // This would call an API to generate an image using T2I
-      // For now, we'll create a placeholder with the prompt
-      return {
-        imageUrl: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Crect fill='%23222' width='400' height='400'/%3E%3Ctext fill='%23888' font-size='14' x='10' y='30' font-family='monospace'%3E${encodeURIComponent(promptText.slice(0, 50))}</text%3E%3C/svg%3E`,
+  const addSourceImage = (promptId: string, imageUrl: string) => {
+    setPrompts(prompts.map(p => 
+      p.id === promptId 
+        ? { ...p, sourceImages: [...p.sourceImages, imageUrl] }
+        : p
+    ));
+  };
+
+  const removeSourceImage = (promptId: string, imageUrl: string) => {
+    setPrompts(prompts.map(p => 
+      p.id === promptId 
+        ? { ...p, sourceImages: p.sourceImages.filter(img => img !== imageUrl) }
+        : p
+    ));
+  };
+
+  const handleImageUpload = (promptId: string, event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files) return;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (e.target?.result) {
+          addSourceImage(promptId, e.target.result as string);
+        }
       };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const generateImageMutation = useMutation({
+    mutationFn: async (params: { type: "t2i" | "i2i"; prompt: string; imageUrls?: string[] }) => {
+      if (params.type === "t2i") {
+        const res = await apiRequest("POST", "/api/generate/text-to-image", {
+          prompt: params.prompt,
+          size: "1024*1024",
+        });
+        const data = await res.json();
+        return { imageUrl: data.imageUrl };
+      } else {
+        const res = await apiRequest("POST", "/api/generate/image-to-image", {
+          prompt: params.prompt,
+          imageUrls: params.imageUrls,
+          size: "1024*1024",
+        });
+        const data = await res.json();
+        return { imageUrl: data.imageUrl };
+      }
     },
   });
 
@@ -77,6 +122,15 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt }:
       return;
     }
 
+    if (generationType === "i2i" && prompt.sourceImages.length === 0) {
+      toast({
+        title: "Missing images",
+        description: "Please upload at least one image for image-to-image generation",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setPrompts(prompts.map(p => p.id === promptId ? { ...p, isGenerating: true } : p));
 
     try {
@@ -85,7 +139,11 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt }:
         ? `${prompt.text} ${projectGlobalPrompt}`
         : prompt.text;
 
-      const result = await generateImageMutation.mutateAsync(fullPrompt);
+      const result = await generateImageMutation.mutateAsync({
+        type: generationType,
+        prompt: fullPrompt,
+        imageUrls: generationType === "i2i" ? prompt.sourceImages : undefined,
+      });
       
       setPrompts(prompts.map(p => 
         p.id === promptId 
@@ -100,7 +158,7 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt }:
     } catch (error) {
       toast({
         title: "Generation failed",
-        description: "Failed to generate preview image",
+        description: error instanceof Error ? error.message : "Failed to generate preview image",
         variant: "destructive",
       });
     } finally {
@@ -180,12 +238,56 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt }:
           {selectedPrompt && (
             <>
               <Card className="p-4 space-y-4">
+                {/* Source Images Section (for I2I only) */}
+                {generationType === "i2i" && (
+                  <div className="space-y-2">
+                    <Label>Source Images</Label>
+                    <div className="border-2 border-dashed border-border rounded-lg p-4">
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*"
+                        onChange={(e) => handleImageUpload(selectedPrompt.id, e)}
+                        className="hidden"
+                        id={`file-upload-${selectedPrompt.id}`}
+                      />
+                      <label 
+                        htmlFor={`file-upload-${selectedPrompt.id}`}
+                        className="flex flex-col items-center justify-center cursor-pointer"
+                      >
+                        <Upload className="w-6 h-6 text-muted-foreground mb-2" />
+                        <span className="text-sm text-muted-foreground">Click to upload images</span>
+                      </label>
+                    </div>
+                    {selectedPrompt.sourceImages.length > 0 && (
+                      <div className="grid grid-cols-3 gap-2">
+                        {selectedPrompt.sourceImages.map((img, idx) => (
+                          <div key={idx} className="relative aspect-square rounded border border-border overflow-hidden bg-muted">
+                            <img
+                              src={img}
+                              alt={`Source ${idx + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                            <button
+                              onClick={() => removeSourceImage(selectedPrompt.id, img)}
+                              className="absolute top-1 right-1 bg-background/80 backdrop-blur-sm rounded p-1 hover:bg-background"
+                              data-testid={`button-remove-source-${selectedPrompt.id}-${idx}`}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Label>Prompt Text</Label>
                   <Textarea
                     value={selectedPrompt.text}
                     onChange={(e) => updatePromptText(selectedPrompt.id, e.target.value)}
-                    placeholder="Describe the image you want to generate..."
+                    placeholder={generationType === "t2i" ? "Describe the image you want to generate..." : "Describe what you want to change in the images..."}
                     className="min-h-24"
                     data-testid={`input-prompt-${selectedPrompt.id}`}
                   />
@@ -198,7 +300,7 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt }:
 
                 <Button
                   onClick={() => generateImage(selectedPrompt.id)}
-                  disabled={selectedPrompt.isGenerating || !selectedPrompt.text.trim()}
+                  disabled={selectedPrompt.isGenerating || !selectedPrompt.text.trim() || (generationType === "i2i" && selectedPrompt.sourceImages.length === 0)}
                   className="w-full"
                   data-testid={`button-generate-${selectedPrompt.id}`}
                 >

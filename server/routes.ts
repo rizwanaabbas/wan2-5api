@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { insertProjectSchema, insertVideoSchema } from "@shared/schema";
-import { generateWanVideo, getWanSize } from "./wan";
+import { generateWanVideo, getWanSize, generateTextToImage, generateImageToImage } from "./wan";
 import { scryptSync, randomBytes } from "crypto";
 
 // Helper to get the public base URL from environment or default
@@ -634,6 +634,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Seed error:", error);
       res.status(500).json({ error: "Failed to seed users" });
+    }
+  });
+
+  // Text-to-Image generation endpoint
+  app.post("/api/generate/text-to-image", async (req, res) => {
+    try {
+      const { prompt, size = "1024*1024" } = req.body;
+
+      if (!prompt || typeof prompt !== "string") {
+        return res.status(400).json({ error: "Prompt is required" });
+      }
+
+      // Convert size format if needed
+      const formattedSize = size.includes("x") ? size.replace("x", "*") : size;
+
+      const imageUrl = await generateTextToImage(prompt, formattedSize);
+      res.json({ success: true, imageUrl });
+    } catch (error) {
+      console.error("T2I generation error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Image generation failed" });
+    }
+  });
+
+  // Image-to-Image generation endpoint
+  app.post("/api/generate/image-to-image", async (req, res) => {
+    try {
+      const { prompt, imageUrls, size = "1024*1024" } = req.body;
+
+      if (!prompt || typeof prompt !== "string") {
+        return res.status(400).json({ error: "Prompt is required" });
+      }
+
+      if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length === 0) {
+        return res.status(400).json({ error: "At least one image URL is required" });
+      }
+
+      // Convert size format if needed
+      const formattedSize = size.includes("x") ? size.replace("x", "*") : size;
+
+      const imageUrl = await generateImageToImage(prompt, imageUrls, formattedSize);
+      res.json({ success: true, imageUrl });
+    } catch (error) {
+      console.error("I2I generation error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Image generation failed" });
     }
   });
 

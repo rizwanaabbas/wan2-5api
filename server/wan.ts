@@ -222,6 +222,207 @@ export async function generateWanVideo(
   }
 }
 
+export async function generateTextToImage(
+  prompt: string,
+  size: string = "1024*1024",
+  onProgress?: (progress: number) => void
+): Promise<string> {
+  if (!process.env.DASHSCOPE_API_KEY) {
+    throw new Error("DASHSCOPE_API_KEY not configured.");
+  }
+
+  try {
+    if (onProgress) onProgress(10);
+
+    const response = await fetch(
+      "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.DASHSCOPE_API_KEY}`,
+          "Content-Type": "application/json",
+          "X-DashScope-Async": "enable",
+        },
+        body: JSON.stringify({
+          model: "wan2.5-t2i-preview",
+          input: {
+            prompt,
+          },
+          parameters: {
+            size,
+            n: 1,
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("T2I generation submission failed:", errorText);
+      throw new Error(`Failed to submit T2I generation: ${response.statusText} - ${errorText}`);
+    }
+
+    const result = await response.json();
+    
+    if (!result.output?.task_id) {
+      console.error("No task ID in response:", result);
+      throw new Error("No task ID returned from API");
+    }
+
+    console.log(`T2I generation task submitted: ${result.output.task_id}`);
+    console.log(`Prompt: "${prompt}", Size: ${size}`);
+
+    // Poll for completion
+    return await pollImageTask(result.output.task_id, onProgress);
+  } catch (error) {
+    console.error("T2I generation error:", error);
+    throw new Error(`Failed to generate text-to-image: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+}
+
+export async function generateImageToImage(
+  prompt: string,
+  imageUrls: string[],
+  size: string = "1024*1024",
+  onProgress?: (progress: number) => void
+): Promise<string> {
+  if (!process.env.DASHSCOPE_API_KEY) {
+    throw new Error("DASHSCOPE_API_KEY not configured.");
+  }
+
+  if (!imageUrls || imageUrls.length === 0) {
+    throw new Error("At least one image URL is required for image-to-image generation");
+  }
+
+  try {
+    if (onProgress) onProgress(10);
+
+    const response = await fetch(
+      "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/image2image/image-synthesis",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.DASHSCOPE_API_KEY}`,
+          "Content-Type": "application/json",
+          "X-DashScope-Async": "enable",
+        },
+        body: JSON.stringify({
+          model: "wan2.5-i2i-preview",
+          input: {
+            prompt,
+            images: imageUrls,
+          },
+          parameters: {
+            n: 1,
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("I2I generation submission failed:", errorText);
+      throw new Error(`Failed to submit I2I generation: ${response.statusText} - ${errorText}`);
+    }
+
+    const result = await response.json();
+    
+    if (!result.output?.task_id) {
+      console.error("No task ID in response:", result);
+      throw new Error("No task ID returned from API");
+    }
+
+    console.log(`I2I generation task submitted: ${result.output.task_id}`);
+    console.log(`Prompt: "${prompt}", Image count: ${imageUrls.length}, Size: ${size}`);
+
+    // Poll for completion
+    return await pollImageTask(result.output.task_id, onProgress);
+  } catch (error) {
+    console.error("I2I generation error:", error);
+    throw new Error(`Failed to generate image-to-image: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+}
+
+async function pollImageTask(
+  taskId: string,
+  onProgress?: (progress: number) => void
+): Promise<string> {
+  if (!process.env.DASHSCOPE_API_KEY) {
+    throw new Error("DASHSCOPE_API_KEY not configured.");
+  }
+
+  const maxAttempts = 60; // Poll for up to 10 minutes (60 * 10s)
+  let attempts = 0;
+
+  while (attempts < maxAttempts) {
+    try {
+      const response = await fetch(`https://dashscope-intl.aliyuncs.com/api/v1/tasks/${taskId}`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${process.env.DASHSCOPE_API_KEY}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Task status check failed: ${response.statusText}`, errorText);
+        throw new Error(`Failed to check task status: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log(`Image task ${taskId} status:`, result.output?.task_status, `Attempt: ${attempts + 1}/${maxAttempts}`);
+      
+      if (result.output?.task_status === "SUCCEEDED") {
+        if (onProgress) {
+          try {
+            await onProgress(100);
+          } catch (err) {
+            console.error("Failed to update progress to 100%:", err);
+          }
+        }
+        
+        // Get the first generated image from the results
+        const imageUrl = result.output.results?.[0]?.image_url || result.output.image_url;
+        if (!imageUrl) {
+          console.error("No image URL in success response:", result.output);
+          throw new Error("No image URL returned from API");
+        }
+        
+        console.log("Image generation success, URL:", imageUrl);
+        return imageUrl;
+      } else if (result.output?.task_status === "FAILED") {
+        const errorMsg = result.output.message || result.output.code || "Unknown error";
+        console.error(`Image generation failed:`, errorMsg);
+        throw new Error(`Image generation failed: ${errorMsg}`);
+      }
+
+      // Update progress based on attempts (10% baseline + up to 80% based on progress)
+      const estimatedProgress = Math.min(90, 10 + Math.floor((attempts / maxAttempts) * 80));
+      if (onProgress) {
+        try {
+          await onProgress(estimatedProgress);
+        } catch (err) {
+          console.error(`Failed to update progress to ${estimatedProgress}%:`, err);
+        }
+      }
+
+      // Wait 10 seconds before next poll
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      attempts++;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("Image generation failed")) {
+        throw error;
+      }
+      console.error(`Polling error on attempt ${attempts + 1}:`, error);
+      // Continue polling on temporary errors
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      attempts++;
+    }
+  }
+
+  throw new Error("Image generation timed out after 10 minutes");
+}
+
 export function getWanSize(resolution: string): string {
   // Parse resolution like "1280x720" and convert to "1280*720" format for Wan API
   const parts = resolution.split("x");
