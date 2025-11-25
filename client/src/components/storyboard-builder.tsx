@@ -278,19 +278,20 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
     }
   };
 
-  // Download image helper
-  const downloadImage = async (imageUrl: string, filename: string) => {
+  // Download image helper - uses server proxy to avoid CORS issues
+  const downloadImage = (imageUrl: string, filename: string) => {
     try {
-      const response = await fetch(imageUrl);
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      // Use the server proxy endpoint for downloading
+      const downloadUrl = `/api/objects/download?url=${encodeURIComponent(imageUrl)}&filename=${encodeURIComponent(filename)}`;
+      
+      // Create a link and trigger download
       const a = document.createElement('a');
-      a.href = url;
+      a.href = downloadUrl;
       a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      
       toast({
         title: "Download started",
         description: "Your image is being downloaded",

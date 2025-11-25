@@ -554,6 +554,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Download endpoint with proper Content-Disposition header for file downloads
+  app.get("/api/objects/download", async (req, res) => {
+    const objectStorageService = new ObjectStorageService();
+    try {
+      const imageUrl = req.query.url as string;
+      const filename = (req.query.filename as string) || 'image.png';
+      
+      if (!imageUrl) {
+        return res.status(400).json({ error: "URL parameter required" });
+      }
+      
+      // Parse the URL to extract the object path
+      let objectPath: string;
+      
+      try {
+        const url = new URL(imageUrl);
+        // Extract path from URL - should be /objects/uploads/... or similar
+        objectPath = url.pathname;
+      } catch {
+        // If not a valid URL, treat as a path directly
+        objectPath = imageUrl;
+      }
+      
+      // Validate the path is within our uploads namespace
+      if (!objectPath.startsWith('/objects/')) {
+        return res.status(400).json({ error: "Invalid object path" });
+      }
+      
+      const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
+      const [metadata] = await objectFile.getMetadata();
+      
+      // Set download headers
+      res.setHeader('Content-Type', metadata.contentType || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      
+      // Stream the file to the response
+      objectFile.createReadStream().pipe(res);
+    } catch (error) {
+      console.error("Error downloading object:", error);
+      if (error instanceof ObjectNotFoundError) {
+        return res.status(404).json({ error: "File not found" });
+      }
+      res.status(500).json({ error: "Failed to download file" });
+    }
+  });
+
   // New endpoint to get file as base64 (for Wan API which has timeout issues with public URLs)
   app.get("/api/objects/base64/:objectPath(*)", async (req, res) => {
     const objectStorageService = new ObjectStorageService();
