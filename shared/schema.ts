@@ -44,6 +44,24 @@ export const videos = pgTable("videos", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const storyboards = pgTable("storyboards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  generationType: text("generation_type").notNull(), // "t2i" or "i2i"
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const storyboardImages = pgTable("storyboard_images", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storyboardId: varchar("storyboard_id").notNull().references(() => storyboards.id, { onDelete: 'cascade' }),
+  prompt: text("prompt").notNull(),
+  sourceImages: text("source_images"), // JSON array of base64 or URLs for I2I
+  generatedImageUrl: text("generated_image_url").notNull(), // Stored image URL
+  order: integer("order").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertProjectSchema = createInsertSchema(projects).omit({
   id: true,
   createdAt: true,
@@ -61,10 +79,24 @@ export const insertVideoSchema = createInsertSchema(videos).omit({
   errorMessage: true,
 });
 
+export const insertStoryboardSchema = createInsertSchema(storyboards).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertStoryboardImageSchema = createInsertSchema(storyboardImages).omit({
+  id: true,
+  createdAt: true,
+});
+
 export type InsertProject = z.infer<typeof insertProjectSchema>;
 export type Project = typeof projects.$inferSelect;
 export type InsertVideo = z.infer<typeof insertVideoSchema>;
 export type Video = typeof videos.$inferSelect;
+export type Storyboard = typeof storyboards.$inferSelect;
+export type InsertStoryboard = z.infer<typeof insertStoryboardSchema>;
+export type StoryboardImage = typeof storyboardImages.$inferSelect;
+export type InsertStoryboardImage = z.infer<typeof insertStoryboardImageSchema>;
 
 export type ModelType = 
   | "wan2.2-animate-mix"

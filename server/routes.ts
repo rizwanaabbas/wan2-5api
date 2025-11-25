@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
-import { insertProjectSchema, insertVideoSchema } from "@shared/schema";
+import { insertProjectSchema, insertVideoSchema, insertStoryboardSchema, insertStoryboardImageSchema } from "@shared/schema";
 import { generateWanVideo, getWanSize, generateTextToImage, generateImageToImage } from "./wan";
 import { scryptSync, randomBytes } from "crypto";
 
@@ -678,6 +678,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("I2I generation error:", error);
       res.status(500).json({ error: error instanceof Error ? error.message : "Image generation failed" });
+    }
+  });
+
+  // Storyboard endpoints
+  app.post("/api/storyboards", async (req, res) => {
+    try {
+      const { projectId, name, generationType } = req.body;
+      
+      if (!projectId || !name || !generationType) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      const storyboard = await storage.createStoryboard({
+        projectId,
+        name,
+        generationType,
+      });
+
+      res.json({ success: true, storyboard });
+    } catch (error) {
+      console.error("Create storyboard error:", error);
+      res.status(500).json({ error: "Failed to create storyboard" });
+    }
+  });
+
+  app.get("/api/storyboards/:id", async (req, res) => {
+    try {
+      const storyboard = await storage.getStoryboard(req.params.id);
+      if (!storyboard) {
+        return res.status(404).json({ error: "Storyboard not found" });
+      }
+      res.json(storyboard);
+    } catch (error) {
+      console.error("Get storyboard error:", error);
+      res.status(500).json({ error: "Failed to fetch storyboard" });
+    }
+  });
+
+  app.get("/api/projects/:projectId/storyboards", async (req, res) => {
+    try {
+      const storyboards = await storage.getStoryboardsByProject(req.params.projectId);
+      res.json(storyboards);
+    } catch (error) {
+      console.error("Get project storyboards error:", error);
+      res.status(500).json({ error: "Failed to fetch storyboards" });
+    }
+  });
+
+  app.delete("/api/storyboards/:id", async (req, res) => {
+    try {
+      const success = await storage.deleteStoryboard(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: "Storyboard not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete storyboard error:", error);
+      res.status(500).json({ error: "Failed to delete storyboard" });
+    }
+  });
+
+  app.post("/api/storyboards/:id/images", async (req, res) => {
+    try {
+      const { prompt, sourceImages, generatedImageUrl, order } = req.body;
+      
+      if (!generatedImageUrl) {
+        return res.status(400).json({ error: "Generated image URL is required" });
+      }
+
+      const image = await storage.createStoryboardImage({
+        storyboardId: req.params.id,
+        prompt,
+        sourceImages: sourceImages ? JSON.stringify(sourceImages) : null,
+        generatedImageUrl,
+        order,
+      });
+
+      res.json({ success: true, image });
+    } catch (error) {
+      console.error("Create storyboard image error:", error);
+      res.status(500).json({ error: "Failed to create storyboard image" });
     }
   });
 

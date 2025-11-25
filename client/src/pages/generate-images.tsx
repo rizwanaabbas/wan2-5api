@@ -74,6 +74,7 @@ export default function GenerateImages() {
           onCancel={() => setLocation(`/project/${projectId!}`)}
           projectGlobalPrompt={project.globalPrompt || undefined}
           generationType={generationType}
+          projectId={projectId!}
         />
       </div>
     </div>

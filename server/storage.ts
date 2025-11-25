@@ -1,4 +1,4 @@
-import { type Project, type InsertProject, type Video, type InsertVideo, type User, type InsertUser, projects, videos, users } from "@shared/schema";
+import { type Project, type InsertProject, type Video, type InsertVideo, type User, type InsertUser, type Storyboard, type InsertStoryboard, type StoryboardImage, type InsertStoryboardImage, projects, videos, users, storyboards, storyboardImages } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
@@ -22,17 +22,29 @@ export interface IStorage {
   createVideo(video: InsertVideo): Promise<Video>;
   updateVideo(id: string, updates: Partial<Video>): Promise<Video | undefined>;
   deleteVideo(id: string): Promise<boolean>;
+
+  // Storyboards
+  getStoryboard(id: string): Promise<(Storyboard & { images: StoryboardImage[] }) | undefined>;
+  getStoryboardsByProject(projectId: string): Promise<Storyboard[]>;
+  createStoryboard(storyboard: InsertStoryboard): Promise<Storyboard>;
+  deleteStoryboard(id: string): Promise<boolean>;
+  createStoryboardImage(image: InsertStoryboardImage): Promise<StoryboardImage>;
+  getStoryboardImages(storyboardId: string): Promise<StoryboardImage[]>;
 }
 
 export class MemStorage implements IStorage {
   private users: Map<string, User>;
   private projects: Map<string, Project>;
   private videos: Map<string, Video>;
+  private storyboards: Map<string, Storyboard>;
+  private storyboardImages: Map<string, StoryboardImage>;
 
   constructor() {
     this.users = new Map();
     this.projects = new Map();
     this.videos = new Map();
+    this.storyboards = new Map();
+    this.storyboardImages = new Map();
   }
 
   // Users
@@ -149,6 +161,60 @@ export class MemStorage implements IStorage {
   async deleteVideo(id: string): Promise<boolean> {
     return this.videos.delete(id);
   }
+
+  // Storyboards
+  async getStoryboard(id: string): Promise<(Storyboard & { images: StoryboardImage[] }) | undefined> {
+    const storyboard = this.storyboards.get(id);
+    if (!storyboard) return undefined;
+    const images = Array.from(this.storyboardImages.values())
+      .filter(img => img.storyboardId === id)
+      .sort((a, b) => a.order - b.order);
+    return { ...storyboard, images };
+  }
+
+  async getStoryboardsByProject(projectId: string): Promise<Storyboard[]> {
+    return Array.from(this.storyboards.values())
+      .filter(s => s.projectId === projectId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async createStoryboard(insertStoryboard: InsertStoryboard): Promise<Storyboard> {
+    const id = randomUUID();
+    const storyboard: Storyboard = {
+      ...insertStoryboard,
+      id,
+      createdAt: new Date(),
+    };
+    this.storyboards.set(id, storyboard);
+    return storyboard;
+  }
+
+  async deleteStoryboard(id: string): Promise<boolean> {
+    const images = Array.from(this.storyboardImages.values())
+      .filter(img => img.storyboardId === id);
+    for (const img of images) {
+      this.storyboardImages.delete(img.id);
+    }
+    return this.storyboards.delete(id);
+  }
+
+  async createStoryboardImage(image: InsertStoryboardImage): Promise<StoryboardImage> {
+    const id = randomUUID();
+    const storyboardImage: StoryboardImage = {
+      ...image,
+      id,
+      sourceImages: image.sourceImages ?? null,
+      createdAt: new Date(),
+    };
+    this.storyboardImages.set(id, storyboardImage);
+    return storyboardImage;
+  }
+
+  async getStoryboardImages(storyboardId: string): Promise<StoryboardImage[]> {
+    return Array.from(this.storyboardImages.values())
+      .filter(img => img.storyboardId === storyboardId)
+      .sort((a, b) => a.order - b.order);
+  }
 }
 
 export class DbStorage implements IStorage {
@@ -228,6 +294,45 @@ export class DbStorage implements IStorage {
   async deleteVideo(id: string): Promise<boolean> {
     const result = await db.delete(videos).where(eq(videos.id, id));
     return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Storyboards
+  async getStoryboard(id: string): Promise<(Storyboard & { images: StoryboardImage[] }) | undefined> {
+    const [storyboard] = await db.select().from(storyboards).where(eq(storyboards.id, id));
+    if (!storyboard) return undefined;
+    const images = await db.select().from(storyboardImages)
+      .where(eq(storyboardImages.storyboardId, id))
+      .orderBy(storyboardImages.order);
+    return { ...storyboard, images };
+  }
+
+  async getStoryboardsByProject(projectId: string): Promise<Storyboard[]> {
+    return db.select()
+      .from(storyboards)
+      .where(eq(storyboards.projectId, projectId))
+      .orderBy(desc(storyboards.createdAt));
+  }
+
+  async createStoryboard(insertStoryboard: InsertStoryboard): Promise<Storyboard> {
+    const [storyboard] = await db.insert(storyboards).values(insertStoryboard).returning();
+    return storyboard;
+  }
+
+  async deleteStoryboard(id: string): Promise<boolean> {
+    const result = await db.delete(storyboards).where(eq(storyboards.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async createStoryboardImage(image: InsertStoryboardImage): Promise<StoryboardImage> {
+    const [storyboardImage] = await db.insert(storyboardImages).values(image).returning();
+    return storyboardImage;
+  }
+
+  async getStoryboardImages(storyboardId: string): Promise<StoryboardImage[]> {
+    return db.select()
+      .from(storyboardImages)
+      .where(eq(storyboardImages.storyboardId, storyboardId))
+      .orderBy(storyboardImages.order);
   }
 }
 

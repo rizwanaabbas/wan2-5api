@@ -5,16 +5,23 @@ import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, X, RefreshCw, Loader2, Check, Upload } from "lucide-react";
+import { Plus, X, RefreshCw, Loader2, Check, Upload, Download, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+
+interface GeneratedImageWithPrompt {
+  prompt: string;
+  sourceImages: string[];
+  generatedImageUrl: string;
+  order: number;
+}
 
 interface StoryboardPrompt {
   id: string;
   text: string;
   sourceImages: string[]; // Source image URLs for I2I
-  generatedImages: string[]; // Generated image URLs
+  generatedImages: GeneratedImageWithPrompt[]; // Generated images with metadata
   isGenerating: boolean;
 }
 
@@ -23,14 +30,18 @@ interface StoryboardBuilderProps {
   onCancel: () => void;
   projectGlobalPrompt?: string;
   generationType: "t2i" | "i2i";
+  projectId: string;
 }
 
-export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, generationType }: StoryboardBuilderProps) {
+export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, generationType, projectId }: StoryboardBuilderProps) {
   const [prompts, setPrompts] = useState<StoryboardPrompt[]>([
     { id: "1", text: "", sourceImages: [], generatedImages: [], isGenerating: false },
   ]);
   const { toast } = useToast();
   const [selectedPromptId, setSelectedPromptId] = useState<string>("1");
+  const [storyboardName, setStoryboardName] = useState<string>("");
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const addPrompt = () => {
     const newId = (Math.max(...prompts.map(p => parseInt(p.id) || 0)) + 1).toString();
@@ -145,9 +156,16 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
         imageUrls: generationType === "i2i" ? prompt.sourceImages : undefined,
       });
       
+      const newImage: GeneratedImageWithPrompt = {
+        prompt: fullPrompt,
+        sourceImages: generationType === "i2i" ? prompt.sourceImages : [],
+        generatedImageUrl: result.imageUrl,
+        order: prompt.generatedImages.length,
+      };
+
       setPrompts(prompts.map(p => 
         p.id === promptId 
-          ? { ...p, generatedImages: [result.imageUrl, ...p.generatedImages], isGenerating: false }
+          ? { ...p, generatedImages: [newImage, ...p.generatedImages], isGenerating: false }
           : p
       ));
 
@@ -166,7 +184,69 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
     }
   };
 
+  const saveStoryboardMutation = useMutation({
+    mutationFn: async () => {
+      if (!storyboardName.trim()) {
+        throw new Error("Please enter a storyboard name");
+      }
+
+      setIsSaving(true);
+
+      // Create storyboard
+      const storyboardRes = await apiRequest("POST", "/api/storyboards", {
+        projectId,
+        name: storyboardName,
+        generationType,
+      });
+      const storyboardData = await storyboardRes.json();
+      const storyboardId = storyboardData.storyboard.id;
+
+      // Save all generated images
+      let order = 0;
+      for (const prompt of prompts) {
+        for (const img of prompt.generatedImages) {
+          await apiRequest("POST", `/api/storyboards/${storyboardId}/images`, {
+            prompt: img.prompt,
+            sourceImages: img.sourceImages.length > 0 ? img.sourceImages : null,
+            generatedImageUrl: img.generatedImageUrl,
+            order,
+          });
+          order++;
+        }
+      }
+
+      toast({
+        title: "Storyboard saved",
+        description: `"${storyboardName}" has been saved successfully`,
+      });
+
+      setShowSaveDialog(false);
+      setIsSaving(false);
+      setStoryboardName("");
+
+      return storyboardId;
+    },
+    onError: (error) => {
+      toast({
+        title: "Save failed",
+        description: error instanceof Error ? error.message : "Failed to save storyboard",
+        variant: "destructive",
+      });
+      setIsSaving(false);
+    },
+  });
+
+  const handleDownloadImage = (imageUrl: string, prompt: string) => {
+    const link = document.createElement("a");
+    link.href = imageUrl;
+    link.download = `${prompt.slice(0, 30).replace(/\s+/g, "_")}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const selectedPrompt = prompts.find(p => p.id === selectedPromptId);
+  const totalGeneratedImages = prompts.reduce((sum, p) => sum + p.generatedImages.length, 0);
 
   return (
     <div className="space-y-6">
@@ -318,24 +398,38 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
                 </Button>
               </Card>
 
-              {/* Generated Images Preview */}
+              {/* Generated Images Preview - Side by Side with Prompts */}
               {selectedPrompt.generatedImages.length > 0 && (
-                <Card className="p-4">
-                  <Label className="mb-3 block">Generated Versions</Label>
-                  <div className="grid grid-cols-2 gap-3 max-h-96 overflow-y-auto">
-                    {selectedPrompt.generatedImages.map((imageUrl, idx) => (
-                      <div
+                <Card className="p-4 space-y-4">
+                  <Label className="mb-3 block">Generated Images ({selectedPrompt.generatedImages.length})</Label>
+                  <div className="space-y-4 max-h-96 overflow-y-auto">
+                    {selectedPrompt.generatedImages.map((img, idx) => (
+                      <div 
                         key={idx}
-                        className="aspect-square rounded border border-border overflow-hidden bg-muted hover-elevate"
+                        className="p-3 border border-border rounded-lg space-y-2"
                         data-testid={`image-preview-${selectedPrompt.id}-${idx}`}
                       >
-                        <img
-                          src={imageUrl}
-                          alt={`Version ${idx + 1}`}
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute top-2 left-2 bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-xs">
-                          v{idx + 1}
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <Badge variant="secondary">v{idx + 1}</Badge>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDownloadImage(img.generatedImageUrl, img.prompt)}
+                            data-testid={`button-download-image-${selectedPrompt.id}-${idx}`}
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                        <div className="flex gap-3">
+                          <div className="flex-1">
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Prompt:</p>
+                            <p className="text-sm break-words whitespace-normal">{img.prompt}</p>
+                          </div>
+                          <img
+                            src={img.generatedImageUrl}
+                            alt={`Generated ${idx + 1}`}
+                            className="w-24 h-24 rounded border border-border object-cover"
+                          />
                         </div>
                       </div>
                     ))}
@@ -347,6 +441,49 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
         </div>
       </div>
 
+      {/* Save Dialog */}
+      {showSaveDialog && (
+        <Card className="p-4 space-y-4 border-2 border-primary/20">
+          <h3 className="font-semibold">Save Storyboard</h3>
+          <div>
+            <Label htmlFor="storyboard-name" className="text-sm mb-2 block">Storyboard Name</Label>
+            <Input
+              id="storyboard-name"
+              placeholder="e.g., Summer Vacation Story"
+              value={storyboardName}
+              onChange={(e) => setStoryboardName(e.target.value)}
+              data-testid="input-storyboard-name"
+            />
+          </div>
+          <div className="flex gap-3 justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setShowSaveDialog(false)}
+              data-testid="button-cancel-save"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => saveStoryboardMutation.mutate()}
+              disabled={isSaving || !storyboardName.trim() || totalGeneratedImages === 0}
+              data-testid="button-confirm-save"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save Storyboard
+                </>
+              )}
+            </Button>
+          </div>
+        </Card>
+      )}
+
       {/* Action Buttons */}
       <div className="flex justify-end gap-3 pt-4 border-t">
         <Button
@@ -357,8 +494,17 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
           Cancel
         </Button>
         <Button
+          variant="outline"
+          onClick={() => setShowSaveDialog(true)}
+          disabled={totalGeneratedImages === 0 || showSaveDialog}
+          data-testid="button-save-storyboard"
+        >
+          <Save className="w-4 h-4 mr-2" />
+          Save for Later
+        </Button>
+        <Button
           onClick={() => onComplete(prompts)}
-          disabled={prompts.some(p => !p.text.trim())}
+          disabled={prompts.some(p => !p.text.trim()) || totalGeneratedImages === 0}
           data-testid="button-complete-storyboard"
         >
           <Check className="w-4 h-4 mr-2" />
