@@ -1,8 +1,5 @@
-import { drizzle } from "drizzle-orm/neon-serverless";
-import { neonConfig, Pool } from "@neondatabase/serverless";
-import ws from "ws";
-
-neonConfig.webSocketConstructor = ws;
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 
 if (!process.env.DATABASE_URL) {
   throw new Error(

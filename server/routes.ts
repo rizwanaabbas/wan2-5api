@@ -1,10 +1,24 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+import { DiskStorageService, ObjectNotFoundError, PathTraversalError, getPublicBaseUrl, buildPublicAssetUrl } from "./diskStorage";
 import { insertProjectSchema, insertVideoSchema, insertStoryboardSchema, insertStoryboardImageSchema } from "@shared/schema";
 import { generateWanVideo, getWanSize, generateTextToImage, generateImageToImage, startTextToImageTask, startImageToImageTask, checkImageTaskStatus } from "./wan";
 import { scryptSync, randomBytes } from "crypto";
+import multer from "multer";
+import * as fs from "fs";
+import * as path from "path";
+
+// Configure multer for file uploads
+const UPLOAD_DIR = process.env.UPLOAD_DIR || "./uploads";
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB limit
+});
 
 // In-memory task store for image generation progress tracking
 interface ImageTask {
@@ -30,25 +44,6 @@ setInterval(() => {
   });
 }, 5 * 60 * 1000); // Run every 5 minutes
 
-// Helper to get the public base URL from environment or default
-function getPublicBaseUrl(): string {
-  return process.env.APP_BASE_URL || 'http://127.0.0.1:5000';
-}
-
-// Helper to build full public asset URLs from relative paths
-function buildPublicAssetUrl(pathOrUrl: string): string {
-  // If it's already a full URL, return as-is
-  if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
-    return pathOrUrl;
-  }
-  
-  // If it's a relative path, construct full URL
-  if (pathOrUrl.startsWith('/')) {
-    return `${getPublicBaseUrl()}${pathOrUrl}`;
-  }
-  
-  return pathOrUrl;
-}
 
 // Password hashing helpers
 function hashPassword(password: string): string {
@@ -80,29 +75,13 @@ async function downloadAndStoreVideo(videoUrl: string): Promise<string | null> {
     const buffer = Buffer.from(await response.arrayBuffer());
     console.log(`Downloaded video: ${buffer.length} bytes, type: ${contentType}`);
 
-    // Upload to object storage
-    const objectStorageService = new ObjectStorageService();
-    const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+    // Save to disk storage
+    const diskStorage = new DiskStorageService();
+    const uploadId = diskStorage.generateUploadId();
+    const storedPath = await diskStorage.saveFile(uploadId, buffer, contentType);
     
-    // Upload the video file with original content type
-    const uploadResponse = await fetch(uploadURL, {
-      method: "PUT",
-      body: buffer,
-      headers: {
-        "Content-Type": contentType,
-      },
-    });
-
-    if (!uploadResponse.ok) {
-      console.error(`Failed to upload video to storage: ${uploadResponse.statusText}`);
-      return null;
-    }
-
-    // Return the normalized path - the frontend will use /objects/:path route to access it
-    const normalizedPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
-    console.log(`Video stored at: ${normalizedPath}`);
-    
-    return normalizedPath;
+    console.log(`Video stored at: ${storedPath}`);
+    return storedPath;
   } catch (error) {
     console.error("Error downloading and storing video:", error);
     return null;
@@ -518,45 +497,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Object storage endpoints for file uploads
+  // Object storage endpoints for file uploads (disk-based)
   app.get("/objects/:objectPath(*)", async (req, res) => {
-    const objectStorageService = new ObjectStorageService();
+    const diskStorage = new DiskStorageService();
     try {
-      const objectFile = await objectStorageService.getObjectEntityFile(
-        req.path,
-      );
-      objectStorageService.downloadObject(objectFile, res);
+      await diskStorage.downloadObject(req.path, res);
     } catch (error) {
-      console.error("Error checking object access:", error);
+      console.error("Error serving object:", error);
       if (error instanceof ObjectNotFoundError) {
         return res.sendStatus(404);
+      }
+      if (error instanceof PathTraversalError) {
+        return res.status(400).json({ error: "Invalid path" });
       }
       return res.sendStatus(500);
     }
   });
 
-  app.post("/api/objects/upload", async (req, res) => {
+  // Direct file upload endpoint (replaces signed URL flow)
+  app.post("/api/objects/upload", upload.single("file"), async (req, res) => {
     try {
-      const objectStorageService = new ObjectStorageService();
-      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-      // Also return the normalized path that can be accessed publicly through this server
-      const normalizedPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      const diskStorage = new DiskStorageService();
       
-      // Construct the full public URL from the request
-      const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+      if (!req.file) {
+        // If no file in request, return upload info for client-side PUT
+        const uploadId = diskStorage.generateUploadId();
+        const objectPath = diskStorage.getPublicPath(uploadId);
+        
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+        const host = req.headers['x-forwarded-host'] || req.headers.host || req.hostname;
+        const uploadURL = `${protocol}://${host}/api/objects/put/${uploadId}`;
+        const publicUrl = `${protocol}://${host}${objectPath}`;
+        
+        return res.json({ uploadURL, publicUrl, objectPath });
+      }
+      
+      // File was uploaded directly
+      const uploadId = diskStorage.generateUploadId();
+      const objectPath = await diskStorage.saveFile(uploadId, req.file.buffer, req.file.mimetype);
+      
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
       const host = req.headers['x-forwarded-host'] || req.headers.host || req.hostname;
-      const publicUrl = `${protocol}://${host}${normalizedPath}`;
+      const publicUrl = `${protocol}://${host}${objectPath}`;
       
-      res.json({ uploadURL, publicUrl, objectPath: normalizedPath });
+      res.json({ publicUrl, objectPath });
     } catch (error) {
-      console.error("Error generating upload URL:", error);
-      res.status(500).json({ error: "Failed to generate upload URL" });
+      console.error("Error handling upload:", error);
+      res.status(500).json({ error: "Failed to upload file" });
+    }
+  });
+
+  // PUT endpoint for direct file uploads (mimics signed URL behavior)
+  app.put("/api/objects/put/:uploadPath(*)", async (req, res) => {
+    try {
+      const diskStorage = new DiskStorageService();
+      const uploadPath = req.params.uploadPath;
+      const contentType = req.headers["content-type"] || "application/octet-stream";
+      
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk) => chunks.push(chunk));
+      req.on("end", async () => {
+        const buffer = Buffer.concat(chunks);
+        await diskStorage.saveFile(uploadPath, buffer, contentType);
+        res.status(200).send("OK");
+      });
+    } catch (error) {
+      console.error("Error saving file:", error);
+      res.status(500).json({ error: "Failed to save file" });
     }
   });
 
   // Download endpoint with proper Content-Disposition header for file downloads
   app.get("/api/objects/download", async (req, res) => {
-    const objectStorageService = new ObjectStorageService();
+    const diskStorage = new DiskStorageService();
     try {
       const imageUrl = req.query.url as string;
       const filename = (req.query.filename as string) || 'image.png';
@@ -570,10 +583,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       try {
         const url = new URL(imageUrl);
-        // Extract path from URL - should be /objects/uploads/... or similar
         objectPath = url.pathname;
       } catch {
-        // If not a valid URL, treat as a path directly
         objectPath = imageUrl;
       }
       
@@ -582,44 +593,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid object path" });
       }
       
-      const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
-      const [metadata] = await objectFile.getMetadata();
+      const metadata = diskStorage.getMetadata(objectPath);
+      if (!metadata) {
+        return res.status(404).json({ error: "File not found" });
+      }
       
       // Set download headers
-      res.setHeader('Content-Type', metadata.contentType || 'application/octet-stream');
+      res.setHeader('Content-Type', metadata.contentType);
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       
       // Stream the file to the response
-      objectFile.createReadStream().pipe(res);
+      await diskStorage.downloadObject(objectPath, res);
     } catch (error) {
       console.error("Error downloading object:", error);
       if (error instanceof ObjectNotFoundError) {
         return res.status(404).json({ error: "File not found" });
       }
+      if (error instanceof PathTraversalError) {
+        return res.status(400).json({ error: "Invalid path" });
+      }
       res.status(500).json({ error: "Failed to download file" });
     }
   });
 
-  // New endpoint to get file as base64 (for Wan API which has timeout issues with public URLs)
+  // Endpoint to get file as base64 (for Wan API which has timeout issues with public URLs)
   app.get("/api/objects/base64/:objectPath(*)", async (req, res) => {
-    const objectStorageService = new ObjectStorageService();
+    const diskStorage = new DiskStorageService();
     try {
-      const objectFile = await objectStorageService.getObjectEntityFile(`/objects/${req.params.objectPath}`);
-      const [metadata] = await objectFile.getMetadata();
+      const objectPath = `/objects/${req.params.objectPath}`;
       
-      // Download file to buffer
-      const chunks: Buffer[] = [];
-      const stream = objectFile.createReadStream();
+      if (!diskStorage.exists(objectPath)) {
+        return res.sendStatus(404);
+      }
       
-      await new Promise((resolve, reject) => {
-        stream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-        stream.on('error', reject);
-        stream.on('end', resolve);
-      });
+      const buffer = diskStorage.readFile(objectPath);
+      const metadata = diskStorage.getMetadata(objectPath);
+      const mimeType = metadata?.contentType || 'application/octet-stream';
       
-      const buffer = Buffer.concat(chunks);
       const base64 = buffer.toString('base64');
-      const mimeType = metadata.contentType || 'application/octet-stream';
       const dataUrl = `data:${mimeType};base64,${base64}`;
       
       res.json({ dataUrl, mimeType, size: buffer.length });
@@ -627,6 +638,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error getting base64:", error);
       if (error instanceof ObjectNotFoundError) {
         return res.sendStatus(404);
+      }
+      if (error instanceof PathTraversalError) {
+        return res.status(400).json({ error: "Invalid path" });
       }
       res.status(500).json({ error: "Failed to get base64" });
     }
