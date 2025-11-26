@@ -577,7 +577,7 @@ export default function GenerateVideo() {
 
               <div>
                 <Label className="text-sm font-semibold">Complete Prompt</Label>
-                <div className="mt-2 rounded-lg border bg-muted/50 p-4">
+                <div className="mt-2 rounded-lg border bg-muted/50 p-4 max-h-12 overflow-y-auto"  >
                   <p className="text-sm whitespace-pre-wrap break-words">
                     {finalPrompt}
                   </p>
