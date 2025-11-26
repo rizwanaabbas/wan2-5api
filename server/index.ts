@@ -3,7 +3,8 @@ import session from "express-session";
 import memoryStore from "memorystore";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-
+import dotenv from "dotenv";
+dotenv.config();
 const app = express();
 
 declare module 'express-session' {
