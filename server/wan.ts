@@ -1,9 +1,13 @@
+import { DiskStorageService } from "./diskStorage";
+
 const DASHSCOPE_API_URL = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis";
 const DASHSCOPE_TASK_URL = "https://dashscope-intl.aliyuncs.com/api/v1/tasks";
 
 if (!process.env.DASHSCOPE_API_KEY) {
   console.warn("DASHSCOPE_API_KEY not set. Video generation will fail.");
 }
+
+const diskStorage = new DiskStorageService();
 
 export interface WanGenerationInput {
   model: string; // "wan2.5-t2v-preview", "wan2.5-i2v-preview", "wan2.2-i2v-plus", etc.
@@ -27,6 +31,77 @@ export interface WanGenerationResult {
   thumbnailUrl?: string;
   duration: number;
   taskId: string;
+}
+
+// Convert a local file path or URL to base64 data URI
+async function convertToBase64(pathOrUrl: string): Promise<string> {
+  // If already a data URI, return as-is
+  if (pathOrUrl.startsWith("data:")) {
+    return pathOrUrl;
+  }
+
+  // Handle local object storage paths
+  if (pathOrUrl.startsWith("/objects/") || pathOrUrl.includes("/objects/")) {
+    try {
+      // Extract the object path
+      let objectPath = pathOrUrl;
+      if (pathOrUrl.includes("/objects/")) {
+        const idx = pathOrUrl.indexOf("/objects/");
+        objectPath = pathOrUrl.slice(idx);
+      }
+      
+      const buffer = diskStorage.readFile(objectPath);
+      const metadata = diskStorage.getMetadata(objectPath);
+      const mimeType = metadata?.contentType || "application/octet-stream";
+      
+      const base64 = buffer.toString("base64");
+      const dataUri = `data:${mimeType};base64,${base64}`;
+      
+      console.log(`Converted local file to base64: ${objectPath} (${mimeType}, ${buffer.length} bytes)`);
+      return dataUri;
+    } catch (error) {
+      console.error(`Failed to convert local file to base64: ${pathOrUrl}`, error);
+      throw new Error(`Failed to read local file: ${pathOrUrl}`);
+    }
+  }
+
+  // Handle external URLs - fetch and convert
+  if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+    try {
+      console.log(`Fetching external URL for base64 conversion: ${pathOrUrl}`);
+      const response = await fetch(pathOrUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch: ${response.statusText}`);
+      }
+      
+      const contentType = response.headers.get("content-type") || "application/octet-stream";
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const base64 = buffer.toString("base64");
+      
+      const dataUri = `data:${contentType};base64,${base64}`;
+      console.log(`Converted external URL to base64: ${pathOrUrl} (${contentType}, ${buffer.length} bytes)`);
+      return dataUri;
+    } catch (error) {
+      console.error(`Failed to fetch and convert URL to base64: ${pathOrUrl}`, error);
+      throw new Error(`Failed to fetch external URL: ${pathOrUrl}`);
+    }
+  }
+
+  // Try to treat as a relative path in uploads directory
+  try {
+    const objectPath = `/objects/${pathOrUrl}`;
+    const buffer = diskStorage.readFile(objectPath);
+    const metadata = diskStorage.getMetadata(objectPath);
+    const mimeType = metadata?.contentType || "application/octet-stream";
+    
+    const base64 = buffer.toString("base64");
+    return `data:${mimeType};base64,${base64}`;
+  } catch {
+    console.error(`Unknown path format, cannot convert to base64: ${pathOrUrl}`);
+    throw new Error(`Cannot convert to base64: ${pathOrUrl}`);
+  }
 }
 
 async function pollTaskStatus(
@@ -128,20 +203,26 @@ export async function generateWanVideo(
       apiInput.negative_prompt = input.negativePrompt;
     }
 
-    // Add image URL for image-to-video models
+    // Add image as base64 for image-to-video models
     if (input.imageUrl) {
-      apiInput.img_url = input.imageUrl;
+      console.log("Converting image to base64 for I2V generation...");
+      apiInput.img_url = await convertToBase64(input.imageUrl);
+      console.log("Image converted to base64 successfully");
     }
 
-    // Add keyframe URLs for keyframe-to-video models
+    // Add keyframe images as base64 for keyframe-to-video models
     if (input.firstKeyframeUrl && input.lastKeyframeUrl) {
-      apiInput.first_keyframe_url = input.firstKeyframeUrl;
-      apiInput.last_keyframe_url = input.lastKeyframeUrl;
+      console.log("Converting keyframe images to base64...");
+      apiInput.first_keyframe_url = await convertToBase64(input.firstKeyframeUrl);
+      apiInput.last_keyframe_url = await convertToBase64(input.lastKeyframeUrl);
+      console.log("Keyframe images converted to base64 successfully");
     }
 
-    // Add custom audio URL if provided
+    // Add custom audio as base64 if provided
     if (input.audioMode === "custom" && input.audioUrl) {
-      apiInput.audio_url = input.audioUrl;
+      console.log("Converting audio to base64 for custom audio...");
+      apiInput.audio_url = await convertToBase64(input.audioUrl);
+      console.log("Audio converted to base64 successfully");
     }
 
     // Validate custom audio mode
@@ -205,14 +286,11 @@ export async function generateWanVideo(
       input.size ? `resolution=${input.size}` : null,
       input.duration ? `duration=${input.duration}s` : null,
       input.audioMode ? `audio=${input.audioMode}` : null,
-      input.audioUrl ? `audioUrl=${input.audioUrl}` : null,
-      input.imageUrl ? `image=${input.imageUrl.substring(0, 30)}...` : null,
+      input.imageUrl ? `image=base64(${input.imageUrl.substring(0, 30)}...)` : null,
     ].filter(Boolean).join(", ");
 
     console.log(`Wan video generation task submitted: ${result.output.task_id}`);
     console.log(`Request: ${logDetails}, prompt="${input.prompt.substring(0, 50)}..."`);
-    console.log(`Full API input:`, JSON.stringify(apiInput, null, 2));
-    console.log(`Full API parameters:`, JSON.stringify(parameters, null, 2));
 
     // Poll for completion
     return await pollTaskStatus(result.output.task_id, onProgress);
@@ -297,6 +375,16 @@ export async function generateImageToImage(
   try {
     if (onProgress) onProgress(10);
 
+    // Convert all image URLs to base64
+    console.log(`Converting ${imageUrls.length} images to base64 for I2I generation...`);
+    const base64Images = await Promise.all(
+      imageUrls.map(async (url, index) => {
+        console.log(`Converting image ${index + 1}/${imageUrls.length}: ${url.substring(0, 50)}...`);
+        return await convertToBase64(url);
+      })
+    );
+    console.log(`All ${imageUrls.length} images converted to base64 successfully`);
+
     const response = await fetch(
       "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/image2image/image-synthesis",
       {
@@ -310,7 +398,7 @@ export async function generateImageToImage(
           model: "wan2.5-i2i-preview",
           input: {
             prompt,
-            images: imageUrls,
+            images: base64Images,
           },
           parameters: {
             n: 1,
@@ -491,6 +579,16 @@ export async function startImageToImageTask(
     throw new Error("At least one image URL is required for image-to-image generation");
   }
 
+  // Convert all image URLs to base64
+  console.log(`Converting ${imageUrls.length} images to base64 for I2I task...`);
+  const base64Images = await Promise.all(
+    imageUrls.map(async (url, index) => {
+      console.log(`Converting image ${index + 1}/${imageUrls.length}: ${url.substring(0, 50)}...`);
+      return await convertToBase64(url);
+    })
+  );
+  console.log(`All ${imageUrls.length} images converted to base64 successfully`);
+
   const response = await fetch(
     "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/image2image/image-synthesis",
     {
@@ -504,7 +602,7 @@ export async function startImageToImageTask(
         model: "wan2.5-i2i-preview",
         input: {
           prompt,
-          images: imageUrls,
+          images: base64Images,
         },
         parameters: {
           size,
