@@ -3,9 +3,25 @@
 ## Overview
 VideoForge is an AI video generation platform leveraging Alibaba Cloud's Wan API via DashScope to create videos. It supports 13 Wan models across six generation categories (text-to-video, image-to-video, text-to-image, image-to-image, animation, keyframe-to-video), offering features like negative prompts, custom audio, and optimized resolutions. The platform provides a modern workspace for managing video generation projects, tracking real-time progress, organizing content, and creating storyboards with preview images before video generation, aiming to simplify AI-driven video creation for users.
 
-## Recent Changes (November 25, 2025)
+## Recent Changes (November 26, 2025)
 
-**Storyboard System with Image Generation & Persistence (Latest)**
+**Local Development Support (Latest)**
+1. **Database Driver**: Replaced Neon serverless driver with standard `pg` driver for local PostgreSQL
+2. **Local Disk Storage**: Created `DiskStorageService` in `server/diskStorage.ts` to replace cloud storage
+   - Files stored in `./uploads` directory (configurable via `UPLOAD_DIR` env var)
+   - Supports file upload, download, streaming, and base64 conversion
+   - Includes path traversal protection for security
+3. **Updated Routes**: All `/objects/*` endpoints now use disk storage
+4. **Environment Configuration**: Updated `.env.example` with local development settings
+
+**Security Fixes**
+- Added `PathTraversalError` class for detecting and rejecting malicious file paths
+- Path validation ensures all file operations stay within the `UPLOAD_DIR` directory
+- Sanitization removes null bytes, parent directory references (..), and validates path segments
+
+## Changes (November 25, 2025)
+
+**Storyboard System with Image Generation & Persistence**
 1. **Text-to-Image Generation**: Uses DashScope `wan2.5-t2i-preview` API to generate preview images from text prompts
 2. **Image-to-Image Generation**: Uses DashScope `wan2.5-i2i-preview` API supporting multiple source images for transformation
 3. **Storyboard Builder UI**: 
@@ -54,8 +70,9 @@ Preferred communication style: Simple, everyday language.
 - **Build**: esbuild for production server bundling, client builds to `dist/public`, single server process for API and static assets.
 
 ### Data Storage
-- **Database**: PostgreSQL via Neon serverless driver.
+- **Database**: PostgreSQL via standard `pg` driver (local development) or Neon serverless driver (production).
 - **ORM**: Drizzle ORM for type-safe queries and migrations.
+- **File Storage**: Local disk storage via `DiskStorageService` (files stored in `./uploads` directory).
 - **Data Models**: 
   - `projects` (id, name, globalPrompt, imageUrl, defaultModel, createdAt)
   - `videos` (id, projectId, name, prompt, model, generationType, resolution, status, progress, videoUrl, thumbnailUrl, sourceImageUrl, duration, errorMessage, createdAt, firstKeyframeUrl, lastKeyframeUrl, audioMode, audioUrl, audioFilename)
@@ -95,6 +112,10 @@ Preferred communication style: Simple, everyday language.
 
 ### Cloud Services
 - **Google Cloud Storage**: For storing video files, thumbnails, source images, and storyboard preview images, using Replit sidecar authentication.
+
+### Local Development Storage
+- **Disk Storage**: Files stored locally in `./uploads` directory for development without cloud dependencies.
+- Path traversal protection ensures security for file operations.
 
 ### File Upload
 - **Uppy**: File uploader with AWS S3 plugin for direct-to-storage uploads.
