@@ -1,23 +1,66 @@
 import { Video } from "@shared/schema";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Play, Download, Clock, Maximize2, Loader2, AlertCircle, RefreshCw, Image as ImageIcon, Video as VideoIcon, Volume2, VolumeX, Music, Copy, Check } from "lucide-react";
+import { Play, Download, Clock, Maximize2, Loader2, AlertCircle, RefreshCw, Image as ImageIcon, Video as VideoIcon, Volume2, VolumeX, Music, Copy, Check, HardDrive } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 interface VideoCardProps {
   video: Video;
   onPlay: (video: Video) => void;
   onDownload: (video: Video) => void;
   onEdit?: (video: Video) => void;
+  savedVideos?: Set<string>;
+  onVideoSaved?: (videoUrl: string) => void;
 }
 
-export function VideoCard({ video, onPlay, onDownload, onEdit }: VideoCardProps) {
+export function VideoCard({ video, onPlay, onDownload, onEdit, savedVideos, onVideoSaved }: VideoCardProps) {
   const [copiedTaskId, setCopiedTaskId] = useState(false);
+  const [isSavingToDisk, setIsSavingToDisk] = useState(false);
   const { toast } = useToast();
+
+  const isVideoSaved = savedVideos?.has(video.videoUrl || "") || false;
+
+  const saveToDisk = async () => {
+    if (!video.videoUrl || isVideoSaved) return;
+
+    setIsSavingToDisk(true);
+    try {
+      const res = await apiRequest("POST", "/api/saved-files", {
+        originalUrl: video.videoUrl,
+        fileType: "video",
+        projectId: video.projectId,
+        videoId: video.id,
+        filename: video.name,
+      });
+      
+      const data = await res.json();
+      
+      if (data.success) {
+        onVideoSaved?.(video.videoUrl);
+        toast({
+          title: data.alreadyExists ? "Already saved" : "Saved to disk",
+          description: data.alreadyExists 
+            ? "This video was already saved to disk" 
+            : `Video saved to: ${data.savedFile.localPath}`,
+        });
+      } else {
+        throw new Error("Failed to save file");
+      }
+    } catch (error) {
+      toast({
+        title: "Save failed",
+        description: error instanceof Error ? error.message : "Failed to save video to disk",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingToDisk(false);
+    }
+  };
 
   const copyTaskId = async () => {
     if (!video.taskId) return;
@@ -265,15 +308,33 @@ export function VideoCard({ video, onPlay, onDownload, onEdit }: VideoCardProps)
               </Button>
             )}
             {video.status === "completed" && video.videoUrl && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => onDownload(video)}
-                data-testid={`button-download-${video.id}`}
-              >
-                <Download className="w-3.5 h-3.5 mr-1.5" />
-                Download
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onDownload(video)}
+                  data-testid={`button-download-${video.id}`}
+                >
+                  <Download className="w-3.5 h-3.5 mr-1.5" />
+                  Download
+                </Button>
+                <Button
+                  size="sm"
+                  variant={isVideoSaved ? "secondary" : "outline"}
+                  onClick={saveToDisk}
+                  disabled={isSavingToDisk || isVideoSaved}
+                  data-testid={`button-save-disk-${video.id}`}
+                >
+                  {isSavingToDisk ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  ) : isVideoSaved ? (
+                    <Check className="w-3.5 h-3.5 mr-1.5 text-green-500" />
+                  ) : (
+                    <HardDrive className="w-3.5 h-3.5 mr-1.5" />
+                  )}
+                  {isVideoSaved ? "Saved" : "Save"}
+                </Button>
+              </>
             )}
           </div>
         </div>

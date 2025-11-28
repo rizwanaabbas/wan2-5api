@@ -1,17 +1,62 @@
 import { Video } from "@shared/schema";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Download, X } from "lucide-react";
+import { Download, HardDrive, Loader2, Check } from "lucide-react";
+import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 interface VideoPlayerProps {
   video: Video | null;
   open: boolean;
   onClose: () => void;
   onDownload: (video: Video) => void;
+  isVideoSaved?: boolean;
+  onVideoSaved?: (videoUrl: string) => void;
 }
 
-export function VideoPlayer({ video, open, onClose, onDownload }: VideoPlayerProps) {
+export function VideoPlayer({ video, open, onClose, onDownload, isVideoSaved, onVideoSaved }: VideoPlayerProps) {
+  const [isSavingToDisk, setIsSavingToDisk] = useState(false);
+  const { toast } = useToast();
+
   if (!video) return null;
+
+  const saveToDisk = async () => {
+    if (!video.videoUrl || isVideoSaved) return;
+
+    setIsSavingToDisk(true);
+    try {
+      const res = await apiRequest("POST", "/api/saved-files", {
+        originalUrl: video.videoUrl,
+        fileType: "video",
+        projectId: video.projectId,
+        videoId: video.id,
+        filename: video.name,
+      });
+      
+      const data = await res.json();
+      
+      if (data.success) {
+        onVideoSaved?.(video.videoUrl);
+        toast({
+          title: data.alreadyExists ? "Already saved" : "Saved to disk",
+          description: data.alreadyExists 
+            ? "This video was already saved to disk" 
+            : `Video saved to: ${data.savedFile.localPath}`,
+        });
+      } else {
+        throw new Error("Failed to save file");
+      }
+    } catch (error) {
+      toast({
+        title: "Save failed",
+        description: error instanceof Error ? error.message : "Failed to save video to disk",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingToDisk(false);
+    }
+  };
 
   // Construct full URL if videoUrl is a relative path (stored videos)
   let videoSrc = video.videoUrl || '';
@@ -30,14 +75,40 @@ export function VideoPlayer({ video, open, onClose, onDownload }: VideoPlayerPro
             </div>
             <div className="flex items-center gap-2">
               {video.videoUrl && (
-                <Button
-                  size="sm"
-                  onClick={() => onDownload(video)}
-                  data-testid="button-download-player"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Download
-                </Button>
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onDownload(video)}
+                    data-testid="button-download-player"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={saveToDisk}
+                    disabled={isSavingToDisk || isVideoSaved}
+                    data-testid="button-save-disk-player"
+                  >
+                    {isSavingToDisk ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Saving...
+                      </>
+                    ) : isVideoSaved ? (
+                      <>
+                        <Check className="w-4 h-4 mr-2 text-green-500" />
+                        Saved to Disk
+                      </>
+                    ) : (
+                      <>
+                        <HardDrive className="w-4 h-4 mr-2" />
+                        Save to Disk
+                      </>
+                    )}
+                  </Button>
+                </>
               )}
             </div>
           </div>

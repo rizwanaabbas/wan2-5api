@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useRoute, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Video, Project } from "@shared/schema";
@@ -18,7 +18,12 @@ export default function Dashboard() {
   const [playerOpen, setPlayerOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [videoToEdit, setVideoToEdit] = useState<Video | null>(null);
+  const [savedVideos, setSavedVideos] = useState<Set<string>>(new Set());
   const { toast } = useToast();
+
+  const handleVideoSaved = useCallback((videoUrl: string) => {
+    setSavedVideos(prev => new Set([...Array.from(prev), videoUrl]));
+  }, []);
 
   // Fetch all projects for welcome screen stats
   const { data: allProjects = [] } = useQuery<Project[]>({
@@ -380,6 +385,8 @@ export default function Dashboard() {
                 onPlay={handlePlay}
                 onDownload={handleDownload}
                 onEdit={handleEdit}
+                savedVideos={savedVideos}
+                onVideoSaved={handleVideoSaved}
               />
             ))}
           </div>
@@ -394,6 +401,8 @@ export default function Dashboard() {
           setSelectedVideo(null);
         }}
         onDownload={handleDownload}
+        isVideoSaved={selectedVideo ? savedVideos.has(selectedVideo.videoUrl || "") : false}
+        onVideoSaved={handleVideoSaved}
       />
 
       <EditVideoDialog
