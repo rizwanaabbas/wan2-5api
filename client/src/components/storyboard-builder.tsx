@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, X, RefreshCw, Loader2, Check, Upload, Download, Save, Eye, ExternalLink } from "lucide-react";
+import { Plus, X, RefreshCw, Loader2, Check, Upload, Download, Save, Eye, ExternalLink, HardDrive } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -72,6 +72,10 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
   // Image viewer state
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerImage, setViewerImage] = useState<GeneratedImageWithPrompt | null>(null);
+  
+  // Save to disk state
+  const [isSavingToDisk, setIsSavingToDisk] = useState(false);
+  const [savedFiles, setSavedFiles] = useState<Set<string>>(new Set());
 
   // Track edit mode
   const isEditMode = !!existingStoryboard;
@@ -376,6 +380,49 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
         description: "Failed to download image",
         variant: "destructive",
       });
+    }
+  };
+
+  // Save image to local disk storage
+  const saveToDisk = async (imageUrl: string, filename: string) => {
+    if (savedFiles.has(imageUrl)) {
+      toast({
+        title: "Already saved",
+        description: "This image is already saved to disk",
+      });
+      return;
+    }
+
+    setIsSavingToDisk(true);
+    try {
+      const res = await apiRequest("POST", "/api/saved-files", {
+        originalUrl: imageUrl,
+        fileType: "image",
+        projectId,
+        filename,
+      });
+      
+      const data = await res.json();
+      
+      if (data.success) {
+        setSavedFiles(prev => new Set([...Array.from(prev), imageUrl]));
+        toast({
+          title: data.alreadyExists ? "Already saved" : "Saved to disk",
+          description: data.alreadyExists 
+            ? "This image was already saved to disk" 
+            : `Image saved to: ${data.savedFile.localPath}`,
+        });
+      } else {
+        throw new Error("Failed to save file");
+      }
+    } catch (error) {
+      toast({
+        title: "Save failed",
+        description: error instanceof Error ? error.message : "Failed to save image to disk",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingToDisk(false);
     }
   };
 
@@ -702,6 +749,19 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
                             >
                               <Download className="w-3.5 h-3.5" />
                             </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => saveToDisk(img.generatedImageUrl, `storyboard-image-${idx + 1}`)}
+                              disabled={isSavingToDisk || savedFiles.has(img.generatedImageUrl)}
+                              data-testid={`button-save-disk-${selectedPrompt.id}-${idx}`}
+                            >
+                              {savedFiles.has(img.generatedImageUrl) ? (
+                                <Check className="w-3.5 h-3.5 text-green-500" />
+                              ) : (
+                                <HardDrive className="w-3.5 h-3.5" />
+                              )}
+                            </Button>
                           </div>
                         </div>
                         <div 
@@ -847,11 +907,34 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
                   Open in New Tab
                 </Button>
                 <Button
+                  variant="outline"
                   onClick={() => downloadImage(viewerImage.generatedImageUrl, `generated-image-${Date.now()}.png`)}
                   data-testid="button-download-viewer"
                 >
                   <Download className="w-4 h-4 mr-2" />
-                  Download Image
+                  Download
+                </Button>
+                <Button
+                  onClick={() => saveToDisk(viewerImage.generatedImageUrl, `storyboard-image-${Date.now()}`)}
+                  disabled={isSavingToDisk || savedFiles.has(viewerImage.generatedImageUrl)}
+                  data-testid="button-save-disk-viewer"
+                >
+                  {isSavingToDisk ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : savedFiles.has(viewerImage.generatedImageUrl) ? (
+                    <>
+                      <Check className="w-4 h-4 mr-2 text-green-500" />
+                      Saved to Disk
+                    </>
+                  ) : (
+                    <>
+                      <HardDrive className="w-4 h-4 mr-2" />
+                      Save to Disk
+                    </>
+                  )}
                 </Button>
               </div>
             </div>
