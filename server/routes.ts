@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { DiskStorageService, ObjectNotFoundError, PathTraversalError, getPublicBaseUrl, buildPublicAssetUrl } from "./diskStorage";
-import { insertProjectSchema, insertVideoSchema, insertStoryboardSchema, insertStoryboardImageSchema } from "@shared/schema";
+import { insertProjectSchema, insertVideoSchema, insertStoryboardSchema, insertStoryboardImageSchema, insertSavedFileSchema } from "@shared/schema";
 import { generateWanVideo, getWanSize, generateTextToImage, generateImageToImage, startTextToImageTask, startImageToImageTask, checkImageTaskStatus } from "./wan";
 import { scryptSync, randomBytes } from "crypto";
 import multer from "multer";
@@ -874,6 +874,184 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Task status check error:", error);
       res.status(500).json({ error: error instanceof Error ? error.message : "Failed to check task status" });
+    }
+  });
+
+  // Save to Disk endpoints
+  // Download and save file to local downloads directory
+  app.post("/api/saved-files", async (req, res) => {
+    try {
+      const { originalUrl, fileType, projectId, videoId, storyboardImageId, filename } = req.body;
+      
+      if (!originalUrl || !fileType) {
+        return res.status(400).json({ error: "originalUrl and fileType are required" });
+      }
+
+      // Check if already saved
+      const existing = await storage.getSavedFileByOriginalUrl(originalUrl);
+      if (existing) {
+        return res.json({ success: true, savedFile: existing, alreadyExists: true });
+      }
+
+      const diskStorage = new DiskStorageService();
+      let buffer: Buffer;
+      let mimeType: string = "application/octet-stream";
+
+      // Determine if it's a local object URL or external URL
+      if (originalUrl.includes('/objects/uploads/') || originalUrl.startsWith('/objects/')) {
+        // Local file - read from disk storage
+        let objectPath: string;
+        if (originalUrl.startsWith('http://') || originalUrl.startsWith('https://')) {
+          const urlObj = new URL(originalUrl);
+          objectPath = urlObj.pathname;
+        } else {
+          objectPath = originalUrl;
+        }
+        
+        buffer = diskStorage.readFile(objectPath);
+        const metadata = diskStorage.getMetadata(objectPath);
+        mimeType = metadata?.contentType || mimeType;
+      } else {
+        // External URL - download
+        const response = await fetch(originalUrl);
+        if (!response.ok) {
+          return res.status(400).json({ error: "Failed to download file from URL" });
+        }
+        buffer = Buffer.from(await response.arrayBuffer());
+        mimeType = response.headers.get('content-type') || mimeType;
+      }
+
+      // Save to downloads directory
+      const downloadsDir = path.join(process.env.UPLOAD_DIR || "./uploads", "downloads");
+      if (!fs.existsSync(downloadsDir)) {
+        fs.mkdirSync(downloadsDir, { recursive: true });
+      }
+
+      // Generate unique filename
+      const ext = mimeType.includes('video') ? '.mp4' : mimeType.includes('image/png') ? '.png' : mimeType.includes('image/jpeg') ? '.jpg' : mimeType.includes('image/gif') ? '.gif' : mimeType.includes('image/webp') ? '.webp' : '.bin';
+      const timestamp = Date.now();
+      const randomSuffix = Math.random().toString(36).substring(2, 8);
+      const finalFilename = filename ? `${filename.replace(/\.[^.]+$/, '')}_${randomSuffix}${ext}` : `${fileType}_${timestamp}_${randomSuffix}${ext}`;
+      const localPath = path.join(downloadsDir, finalFilename);
+
+      // Write file
+      fs.writeFileSync(localPath, buffer);
+
+      // Create database record
+      const savedFile = await storage.createSavedFile({
+        originalUrl,
+        localPath,
+        filename: finalFilename,
+        fileType: fileType as "image" | "video",
+        fileSize: buffer.length,
+        mimeType,
+        projectId: projectId || null,
+        videoId: videoId || null,
+        storyboardImageId: storyboardImageId || null,
+      });
+
+      res.json({ success: true, savedFile });
+    } catch (error) {
+      console.error("Save file error:", error);
+      res.status(500).json({ error: "Failed to save file to disk" });
+    }
+  });
+
+  // Get saved files for a project
+  app.get("/api/projects/:projectId/saved-files", async (req, res) => {
+    try {
+      const savedFiles = await storage.getSavedFilesByProject(req.params.projectId);
+      res.json(savedFiles);
+    } catch (error) {
+      console.error("Get saved files error:", error);
+      res.status(500).json({ error: "Failed to fetch saved files" });
+    }
+  });
+
+  // Check if a file is already saved (by original URL)
+  app.get("/api/saved-files/check", async (req, res) => {
+    try {
+      const { originalUrl } = req.query;
+      if (!originalUrl || typeof originalUrl !== "string") {
+        return res.status(400).json({ error: "originalUrl query parameter is required" });
+      }
+
+      const savedFile = await storage.getSavedFileByOriginalUrl(originalUrl);
+      res.json({ exists: !!savedFile, savedFile: savedFile || null });
+    } catch (error) {
+      console.error("Check saved file error:", error);
+      res.status(500).json({ error: "Failed to check saved file" });
+    }
+  });
+
+  // Get saved file by video ID
+  app.get("/api/saved-files/video/:videoId", async (req, res) => {
+    try {
+      const savedFile = await storage.getSavedFileByVideoId(req.params.videoId);
+      res.json({ exists: !!savedFile, savedFile: savedFile || null });
+    } catch (error) {
+      console.error("Get saved file by video error:", error);
+      res.status(500).json({ error: "Failed to check saved file" });
+    }
+  });
+
+  // Get saved file by storyboard image ID
+  app.get("/api/saved-files/storyboard-image/:storyboardImageId", async (req, res) => {
+    try {
+      const savedFile = await storage.getSavedFileByStoryboardImageId(req.params.storyboardImageId);
+      res.json({ exists: !!savedFile, savedFile: savedFile || null });
+    } catch (error) {
+      console.error("Get saved file by storyboard image error:", error);
+      res.status(500).json({ error: "Failed to check saved file" });
+    }
+  });
+
+  // Delete saved file
+  app.delete("/api/saved-files/:id", async (req, res) => {
+    try {
+      const savedFile = await storage.getSavedFile(req.params.id);
+      if (!savedFile) {
+        return res.status(404).json({ error: "Saved file not found" });
+      }
+
+      // Delete the actual file from disk
+      if (fs.existsSync(savedFile.localPath)) {
+        fs.unlinkSync(savedFile.localPath);
+      }
+
+      // Delete database record
+      const deleted = await storage.deleteSavedFile(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Failed to delete saved file record" });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete saved file error:", error);
+      res.status(500).json({ error: "Failed to delete saved file" });
+    }
+  });
+
+  // Serve saved files from downloads directory
+  app.get("/api/saved-files/download/:id", async (req, res) => {
+    try {
+      const savedFile = await storage.getSavedFile(req.params.id);
+      if (!savedFile) {
+        return res.status(404).json({ error: "Saved file not found" });
+      }
+
+      if (!fs.existsSync(savedFile.localPath)) {
+        return res.status(404).json({ error: "File not found on disk" });
+      }
+
+      res.setHeader('Content-Type', savedFile.mimeType || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${path.basename(savedFile.localPath)}"`);
+      
+      const stream = fs.createReadStream(savedFile.localPath);
+      stream.pipe(res);
+    } catch (error) {
+      console.error("Download saved file error:", error);
+      res.status(500).json({ error: "Failed to download saved file" });
     }
   });
 
