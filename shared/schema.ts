@@ -62,6 +62,21 @@ export const storyboardImages = pgTable("storyboard_images", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Saved files table for tracking downloaded/stored files
+export const savedFiles = pgTable("saved_files", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  originalUrl: text("original_url").notNull(), // Original URL from API
+  localPath: text("local_path").notNull(), // Local storage path like /objects/downloads/uuid.mp4
+  filename: text("filename").notNull(), // Original or generated filename
+  fileType: text("file_type").notNull(), // "video", "image", "audio"
+  mimeType: text("mime_type"), // e.g., "video/mp4", "image/png"
+  fileSize: integer("file_size"), // Size in bytes
+  projectId: varchar("project_id").references(() => projects.id, { onDelete: 'set null' }),
+  videoId: varchar("video_id").references(() => videos.id, { onDelete: 'set null' }),
+  storyboardImageId: varchar("storyboard_image_id").references(() => storyboardImages.id, { onDelete: 'set null' }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertProjectSchema = createInsertSchema(projects).omit({
   id: true,
   createdAt: true,
@@ -89,6 +104,11 @@ export const insertStoryboardImageSchema = createInsertSchema(storyboardImages).
   createdAt: true,
 });
 
+export const insertSavedFileSchema = createInsertSchema(savedFiles).omit({
+  id: true,
+  createdAt: true,
+});
+
 export type InsertProject = z.infer<typeof insertProjectSchema>;
 export type Project = typeof projects.$inferSelect;
 export type InsertVideo = z.infer<typeof insertVideoSchema>;
@@ -97,6 +117,8 @@ export type Storyboard = typeof storyboards.$inferSelect;
 export type InsertStoryboard = z.infer<typeof insertStoryboardSchema>;
 export type StoryboardImage = typeof storyboardImages.$inferSelect;
 export type InsertStoryboardImage = z.infer<typeof insertStoryboardImageSchema>;
+export type SavedFile = typeof savedFiles.$inferSelect;
+export type InsertSavedFile = z.infer<typeof insertSavedFileSchema>;
 
 export type ModelType = 
   | "wan2.2-animate-mix"

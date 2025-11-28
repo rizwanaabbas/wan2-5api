@@ -1,4 +1,4 @@
-import { type Project, type InsertProject, type Video, type InsertVideo, type User, type InsertUser, type Storyboard, type InsertStoryboard, type StoryboardImage, type InsertStoryboardImage, projects, videos, users, storyboards, storyboardImages } from "@shared/schema";
+import { type Project, type InsertProject, type Video, type InsertVideo, type User, type InsertUser, type Storyboard, type InsertStoryboard, type StoryboardImage, type InsertStoryboardImage, type SavedFile, type InsertSavedFile, projects, videos, users, storyboards, storyboardImages, savedFiles } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
@@ -30,6 +30,15 @@ export interface IStorage {
   deleteStoryboard(id: string): Promise<boolean>;
   createStoryboardImage(image: InsertStoryboardImage): Promise<StoryboardImage>;
   getStoryboardImages(storyboardId: string): Promise<StoryboardImage[]>;
+
+  // Saved Files
+  getSavedFile(id: string): Promise<SavedFile | undefined>;
+  getSavedFileByOriginalUrl(originalUrl: string): Promise<SavedFile | undefined>;
+  getSavedFilesByProject(projectId: string): Promise<SavedFile[]>;
+  getSavedFileByVideoId(videoId: string): Promise<SavedFile | undefined>;
+  getSavedFileByStoryboardImageId(storyboardImageId: string): Promise<SavedFile | undefined>;
+  createSavedFile(savedFile: InsertSavedFile): Promise<SavedFile>;
+  deleteSavedFile(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -38,6 +47,7 @@ export class MemStorage implements IStorage {
   private videos: Map<string, Video>;
   private storyboards: Map<string, Storyboard>;
   private storyboardImages: Map<string, StoryboardImage>;
+  private savedFilesMap: Map<string, SavedFile>;
 
   constructor() {
     this.users = new Map();
@@ -45,6 +55,7 @@ export class MemStorage implements IStorage {
     this.videos = new Map();
     this.storyboards = new Map();
     this.storyboardImages = new Map();
+    this.savedFilesMap = new Map();
   }
 
   // Users
@@ -215,6 +226,49 @@ export class MemStorage implements IStorage {
       .filter(img => img.storyboardId === storyboardId)
       .sort((a, b) => a.order - b.order);
   }
+
+  // Saved Files
+  async getSavedFile(id: string): Promise<SavedFile | undefined> {
+    return this.savedFilesMap.get(id);
+  }
+
+  async getSavedFileByOriginalUrl(originalUrl: string): Promise<SavedFile | undefined> {
+    return Array.from(this.savedFilesMap.values()).find(f => f.originalUrl === originalUrl);
+  }
+
+  async getSavedFilesByProject(projectId: string): Promise<SavedFile[]> {
+    return Array.from(this.savedFilesMap.values())
+      .filter(f => f.projectId === projectId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async getSavedFileByVideoId(videoId: string): Promise<SavedFile | undefined> {
+    return Array.from(this.savedFilesMap.values()).find(f => f.videoId === videoId);
+  }
+
+  async getSavedFileByStoryboardImageId(storyboardImageId: string): Promise<SavedFile | undefined> {
+    return Array.from(this.savedFilesMap.values()).find(f => f.storyboardImageId === storyboardImageId);
+  }
+
+  async createSavedFile(insertSavedFile: InsertSavedFile): Promise<SavedFile> {
+    const id = randomUUID();
+    const savedFile: SavedFile = {
+      ...insertSavedFile,
+      id,
+      mimeType: insertSavedFile.mimeType ?? null,
+      fileSize: insertSavedFile.fileSize ?? null,
+      projectId: insertSavedFile.projectId ?? null,
+      videoId: insertSavedFile.videoId ?? null,
+      storyboardImageId: insertSavedFile.storyboardImageId ?? null,
+      createdAt: new Date(),
+    };
+    this.savedFilesMap.set(id, savedFile);
+    return savedFile;
+  }
+
+  async deleteSavedFile(id: string): Promise<boolean> {
+    return this.savedFilesMap.delete(id);
+  }
 }
 
 export class DbStorage implements IStorage {
@@ -333,6 +387,44 @@ export class DbStorage implements IStorage {
       .from(storyboardImages)
       .where(eq(storyboardImages.storyboardId, storyboardId))
       .orderBy(storyboardImages.order);
+  }
+
+  // Saved Files
+  async getSavedFile(id: string): Promise<SavedFile | undefined> {
+    const [file] = await db.select().from(savedFiles).where(eq(savedFiles.id, id));
+    return file;
+  }
+
+  async getSavedFileByOriginalUrl(originalUrl: string): Promise<SavedFile | undefined> {
+    const [file] = await db.select().from(savedFiles).where(eq(savedFiles.originalUrl, originalUrl));
+    return file;
+  }
+
+  async getSavedFilesByProject(projectId: string): Promise<SavedFile[]> {
+    return db.select()
+      .from(savedFiles)
+      .where(eq(savedFiles.projectId, projectId))
+      .orderBy(desc(savedFiles.createdAt));
+  }
+
+  async getSavedFileByVideoId(videoId: string): Promise<SavedFile | undefined> {
+    const [file] = await db.select().from(savedFiles).where(eq(savedFiles.videoId, videoId));
+    return file;
+  }
+
+  async getSavedFileByStoryboardImageId(storyboardImageId: string): Promise<SavedFile | undefined> {
+    const [file] = await db.select().from(savedFiles).where(eq(savedFiles.storyboardImageId, storyboardImageId));
+    return file;
+  }
+
+  async createSavedFile(insertSavedFile: InsertSavedFile): Promise<SavedFile> {
+    const [savedFile] = await db.insert(savedFiles).values(insertSavedFile).returning();
+    return savedFile;
+  }
+
+  async deleteSavedFile(id: string): Promise<boolean> {
+    const result = await db.delete(savedFiles).where(eq(savedFiles.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
   }
 }
 
