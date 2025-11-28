@@ -1,7 +1,7 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRoute, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Video, Project } from "@shared/schema";
+import { Video, Project, SavedFile } from "@shared/schema";
 import { VideoCard } from "@/components/video-card";
 import { VideoPlayer } from "@/components/video-player";
 import { EditVideoDialog } from "@/components/edit-video-dialog";
@@ -21,9 +21,22 @@ export default function Dashboard() {
   const [savedVideos, setSavedVideos] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
+  const { data: savedFiles = [] } = useQuery<SavedFile[]>({
+    queryKey: ["/api/projects", projectId, "saved-files"],
+    enabled: !!projectId,
+  });
+
+  useEffect(() => {
+    if (savedFiles.length > 0) {
+      const savedUrls = new Set(savedFiles.map(f => f.originalUrl));
+      setSavedVideos(savedUrls);
+    }
+  }, [savedFiles]);
+
   const handleVideoSaved = useCallback((videoUrl: string) => {
     setSavedVideos(prev => new Set([...Array.from(prev), videoUrl]));
-  }, []);
+    queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "saved-files"] });
+  }, [projectId]);
 
   // Fetch all projects for welcome screen stats
   const { data: allProjects = [] } = useQuery<Project[]>({

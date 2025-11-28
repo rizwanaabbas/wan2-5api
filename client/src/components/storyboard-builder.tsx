@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Storyboard, StoryboardImage } from "@shared/schema";
+import { Storyboard, StoryboardImage, SavedFile } from "@shared/schema";
 
 const RESOLUTION_OPTIONS = [
   { label: "1:1 (1024×1024)", value: "1024*1024" },
@@ -76,6 +76,20 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
   // Save to disk state
   const [isSavingToDisk, setIsSavingToDisk] = useState(false);
   const [savedFiles, setSavedFiles] = useState<Set<string>>(new Set());
+
+  // Fetch previously saved files for this project
+  const { data: previouslySavedFiles = [] } = useQuery<SavedFile[]>({
+    queryKey: ["/api/projects", projectId, "saved-files"],
+    enabled: !!projectId,
+  });
+
+  // Initialize savedFiles set with previously saved URLs
+  useEffect(() => {
+    if (previouslySavedFiles.length > 0) {
+      const savedUrls = new Set(previouslySavedFiles.map(f => f.originalUrl));
+      setSavedFiles(savedUrls);
+    }
+  }, [previouslySavedFiles]);
 
   // Track edit mode
   const isEditMode = !!existingStoryboard;
@@ -406,6 +420,7 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
       
       if (data.success) {
         setSavedFiles(prev => new Set([...Array.from(prev), imageUrl]));
+        queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "saved-files"] });
         toast({
           title: data.alreadyExists ? "Already saved" : "Saved to disk",
           description: data.alreadyExists 
