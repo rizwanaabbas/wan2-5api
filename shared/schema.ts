@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -40,6 +40,7 @@ export const videos = pgTable("videos", {
   audioUrl: text("audio_url"), // For custom audio
   audioFilename: text("audio_filename"), // Original filename for custom audio
   duration: integer("duration"), // in seconds
+  promptExtend: boolean("prompt_extend").default(true), // Enable prompt extension (true by default)
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -90,7 +91,6 @@ export const insertVideoSchema = createInsertSchema(videos).omit({
   taskId: true,
   videoUrl: true,
   thumbnailUrl: true,
-  duration: true,
   errorMessage: true,
 });
 

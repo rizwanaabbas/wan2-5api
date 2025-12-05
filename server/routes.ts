@@ -102,6 +102,7 @@ async function startVideoGenerationJob(
     firstKeyframeUrl?: string;
     lastKeyframeUrl?: string;
     duration?: number;
+    promptExtend?: boolean;
   } = {}
 ) {
   try {
@@ -181,8 +182,8 @@ async function startVideoGenerationJob(
         prompt,
         negativePrompt: options.negativePrompt,
         size,
-        duration: options.duration || 10,
-        promptExtend: true,
+        duration: options.duration || 5,
+        promptExtend: options.promptExtend !== false, // Default to true if not explicitly set to false
         audioMode: (options.audioMode as any) || "auto",
         audioUrl: audioDataUrl,
         imageUrl: imageDataUrl,
@@ -262,6 +263,7 @@ async function recoverStuckVideos() {
           firstKeyframeUrl: video.firstKeyframeUrl || undefined,
           lastKeyframeUrl: video.lastKeyframeUrl || undefined,
           duration: video.duration || undefined,
+          promptExtend: video.promptExtend !== false,
         }).catch(err => {
           console.error(`Failed to restart video ${video.id}:`, err);
         });
@@ -404,7 +406,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         imageUrl: data.sourceImageUrl || undefined,
         firstKeyframeUrl: data.firstKeyframeUrl || undefined,
         lastKeyframeUrl: data.lastKeyframeUrl || undefined,
-        duration: 10,
+        duration: data.duration || 5,
+        promptExtend: data.promptExtend !== false,
       }).catch(err => {
         console.error(`Background job failed for video ${video.id}:`, err);
       });
@@ -472,6 +475,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         audioUrl: video.audioUrl || undefined,
         imageUrl: video.sourceImageUrl || undefined,
         duration: video.duration || undefined,
+        promptExtend: video.promptExtend !== false,
       }).catch(err => {
         console.error(`Background regeneration job failed for video ${req.params.id}:`, err);
       });

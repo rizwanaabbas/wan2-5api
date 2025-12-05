@@ -14,7 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowLeft, Loader2, Sparkles, Info } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ArrowLeft, Loader2, Sparkles, Info, Clock, Wand2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 
@@ -34,6 +35,8 @@ export default function GenerateVideo() {
   const [lastKeyframe, setLastKeyframe] = useState<File | null>(null);
   const [audioMode, setAudioMode] = useState<AudioMode>("auto");
   const [customAudio, setCustomAudio] = useState<File | null>(null);
+  const [duration, setDuration] = useState<number>(5);
+  const [promptExtend, setPromptExtend] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [finalPrompt, setFinalPrompt] = useState("");
@@ -318,6 +321,8 @@ export default function GenerateVideo() {
       audioMode,
       audioUrl: audioUrl || undefined,
       audioFilename: customAudio?.name || undefined,
+      duration,
+      promptExtend,
     });
   };
 
@@ -517,6 +522,56 @@ export default function GenerateVideo() {
                 selectedResolution={resolution}
                 onResolutionChange={setResolution}
               />
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <Label className="text-sm font-semibold mb-2 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-muted-foreground" />
+                    Video Duration
+                  </Label>
+                  <Select
+                    value={String(duration)}
+                    onValueChange={(value) => setDuration(Number(value))}
+                  >
+                    <SelectTrigger data-testid="select-duration">
+                      <SelectValue placeholder="Select duration" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((sec) => (
+                        <SelectItem key={sec} value={String(sec)}>
+                          {sec} {sec === 1 ? "second" : "seconds"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Duration of the generated video (1-10 seconds)
+                  </p>
+                </div>
+
+                <div className="flex flex-col justify-center">
+                  <div className="flex items-center space-x-3">
+                    <Checkbox
+                      id="prompt-extend"
+                      checked={promptExtend}
+                      onCheckedChange={(checked) => setPromptExtend(checked === true)}
+                      data-testid="checkbox-prompt-extend"
+                    />
+                    <div className="flex flex-col">
+                      <Label 
+                        htmlFor="prompt-extend" 
+                        className="text-sm font-semibold flex items-center gap-2 cursor-pointer"
+                      >
+                        <Wand2 className="w-4 h-4 text-muted-foreground" />
+                        Prompt Extend
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        AI will enhance and expand your prompt for better results
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </Card>
 
@@ -598,9 +653,20 @@ export default function GenerateVideo() {
                 </div>
               )}
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-semibold">Resolution</Label>
+                  <p className="text-sm mt-1">{resolution}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Duration</Label>
+                  <p className="text-sm mt-1">{duration} {duration === 1 ? "second" : "seconds"}</p>
+                </div>
+              </div>
+
               <div>
-                <Label className="text-sm font-semibold">Resolution</Label>
-                <p className="text-sm mt-1">{resolution}</p>
+                <Label className="text-sm font-semibold">Prompt Extend</Label>
+                <p className="text-sm mt-1">{promptExtend ? "Enabled - AI will enhance your prompt" : "Disabled"}</p>
               </div>
             </div>
 
