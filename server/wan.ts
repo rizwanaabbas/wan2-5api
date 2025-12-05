@@ -218,11 +218,41 @@ export async function generateWanVideo(
       console.log("Keyframe images converted to base64 successfully");
     }
 
-    // Add custom audio as base64 if provided
+    // Add custom audio if provided
+    // IMPORTANT: DashScope Wan API requires audio_url to be a PUBLICLY ACCESSIBLE HTTP/HTTPS URL
+    // It does NOT support base64 encoding or local file paths for audio (unlike images)
+    // Supported format: MP3 only
     if (input.audioMode === "custom" && input.audioUrl) {
-      console.log("Converting audio to base64 for custom audio...");
-      apiInput.audio_url = await convertToBase64(input.audioUrl);
-      console.log("Audio converted to base64 successfully");
+      console.log("Processing custom audio for API...");
+      console.log(`Audio URL: ${input.audioUrl.substring(0, 100)}...`);
+      
+      // DashScope requires a publicly accessible URL for audio
+      if (input.audioUrl.startsWith("http://") || input.audioUrl.startsWith("https://")) {
+        // External URL - pass directly
+        console.log("Using external audio URL directly");
+        apiInput.audio_url = input.audioUrl;
+      } else if (input.audioUrl.startsWith("/objects/") || input.audioUrl.includes("/objects/")) {
+        // Local file path - this won't work with DashScope API
+        // The API needs a publicly accessible URL, not a local path or base64
+        console.error("ERROR: DashScope API requires a publicly accessible URL for audio files.");
+        console.error("Local file paths (/objects/...) are not supported by the API.");
+        console.error("Please upload your audio to a public hosting service or use a publicly accessible URL.");
+        throw new Error(
+          "Custom audio requires a publicly accessible URL. " +
+          "Local file uploads are not supported by the DashScope API for audio. " +
+          "Please use a public URL (e.g., from cloud storage) or select 'Auto-generate audio' instead."
+        );
+      } else if (input.audioUrl.startsWith("data:")) {
+        // Base64 encoded - also not supported for audio
+        console.error("ERROR: DashScope API does not support base64-encoded audio.");
+        throw new Error(
+          "Base64-encoded audio is not supported by the DashScope API. " +
+          "Please provide a publicly accessible URL to an MP3 file."
+        );
+      } else {
+        console.error(`Unsupported audio URL format: ${input.audioUrl.substring(0, 50)}`);
+        throw new Error("Unsupported audio URL format. Please provide a publicly accessible HTTP/HTTPS URL to an MP3 file.");
+      }
     }
 
     // Validate custom audio mode

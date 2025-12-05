@@ -34,7 +34,7 @@ export default function GenerateVideo() {
   const [firstKeyframe, setFirstKeyframe] = useState<File | null>(null);
   const [lastKeyframe, setLastKeyframe] = useState<File | null>(null);
   const [audioMode, setAudioMode] = useState<AudioMode>("auto");
-  const [customAudio, setCustomAudio] = useState<File | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string>(""); // Public URL to audio file (DashScope requires publicly accessible URLs)
   const [duration, setDuration] = useState<number>(5);
   const [promptExtend, setPromptExtend] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
@@ -134,20 +134,42 @@ export default function GenerateVideo() {
       return;
     }
 
-    // Validate custom audio
-    if (selectedModelMeta.supportsAudio && audioMode === "custom" && !customAudio) {
+    // Validate custom audio URL
+    if (selectedModelMeta.supportsAudio && audioMode === "custom" && !audioUrl.trim()) {
       toast({
-        title: "Audio required",
-        description: "Please upload an audio file when using custom audio mode",
+        title: "Audio URL required",
+        description: "Please enter a publicly accessible URL to an MP3 file when using custom audio mode",
         variant: "destructive",
       });
       return;
+    }
+    
+    // Validate audio URL format
+    if (selectedModelMeta.supportsAudio && audioMode === "custom" && audioUrl.trim()) {
+      try {
+        const url = new URL(audioUrl.trim());
+        if (!url.protocol.startsWith("http")) {
+          toast({
+            title: "Invalid audio URL",
+            description: "Please enter a valid HTTP or HTTPS URL",
+            variant: "destructive",
+          });
+          return;
+        }
+      } catch {
+        toast({
+          title: "Invalid audio URL",
+          description: "Please enter a valid URL (e.g., https://example.com/audio.mp3)",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     let sourceImageUrl = null;
     let firstKeyframeUrl = null;
     let lastKeyframeUrl = null;
-    let audioUrl = null;
+    let customAudioUrl: string | null = null;
 
     // Use project's default image if no image uploaded
     if (selectedModelMeta.supportsImage && !selectedModelMeta.supportsKeyframes && !sourceImage && project?.imageUrl) {
@@ -262,49 +284,9 @@ export default function GenerateVideo() {
       }
     }
 
-    // Upload custom audio if provided
-    if (audioMode === "custom" && customAudio) {
-      let uploadError = null;
-      try {
-        setIsUploading(true);
-        const uploadResponse = await fetch("/api/objects/upload", {
-          method: "POST",
-        });
-
-        if (!uploadResponse.ok) {
-          throw new Error("Failed to get upload URL");
-        }
-
-        const { uploadURL, publicUrl } = await uploadResponse.json();
-
-        const uploadResult = await fetch(uploadURL, {
-          method: "PUT",
-          body: customAudio,
-          headers: {
-            "Content-Type": customAudio.type,
-          },
-        });
-
-        if (!uploadResult.ok) {
-          throw new Error("Failed to upload audio");
-        }
-
-        // Use the public URL served by our server - this is accessible to external APIs
-        audioUrl = publicUrl;
-      } catch (error: any) {
-        uploadError = error;
-      } finally {
-        setIsUploading(false);
-      }
-
-      if (uploadError) {
-        toast({
-          title: "Upload failed",
-          description: uploadError.message || "Failed to upload audio file",
-          variant: "destructive",
-        });
-        return;
-      }
+    // Set custom audio URL if provided (must be a publicly accessible URL)
+    if (audioMode === "custom" && audioUrl.trim()) {
+      customAudioUrl = audioUrl.trim();
     }
 
     generateMutation.mutate({
@@ -319,8 +301,8 @@ export default function GenerateVideo() {
       firstKeyframeUrl,
       lastKeyframeUrl,
       audioMode,
-      audioUrl: audioUrl || undefined,
-      audioFilename: customAudio?.name || undefined,
+      audioUrl: customAudioUrl || undefined,
+      audioFilename: customAudioUrl ? "custom-audio.mp3" : undefined, // Use generic name for URL-based audio
       duration: Number(duration), // Ensure numeric value
       promptExtend: Boolean(promptExtend), // Ensure boolean value
     });
@@ -498,21 +480,31 @@ export default function GenerateVideo() {
                   </div>
 
                   {audioMode === "custom" && (
-                    <div>
-                      <Label className="text-sm font-semibold mb-2 block">
-                        Custom Audio File
-                      </Label>
-                      <Input
-                        type="file"
-                        accept="audio/*"
-                        onChange={(e) => setCustomAudio(e.target.files?.[0] || null)}
-                        data-testid="input-custom-audio"
-                      />
-                      {customAudio && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Selected: {customAudio.name}
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3">
+                        <p className="text-sm text-amber-700 dark:text-amber-400 font-medium">
+                          Important: Custom audio requires a publicly accessible URL
                         </p>
-                      )}
+                        <p className="text-xs text-amber-600/80 dark:text-amber-400/80 mt-1">
+                          The DashScope API requires audio files to be hosted at a public URL (not local files).
+                          Please enter a direct URL to an MP3 file below, or use "Auto" for AI-generated audio.
+                        </p>
+                      </div>
+                      <div>
+                        <Label className="text-sm font-semibold mb-2 block">
+                          Audio URL (MP3)
+                        </Label>
+                        <Input
+                          type="url"
+                          placeholder="https://example.com/audio.mp3"
+                          value={audioUrl}
+                          onChange={(e) => setAudioUrl(e.target.value)}
+                          data-testid="input-audio-url"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Enter a publicly accessible URL to an MP3 file
+                        </p>
+                      </div>
                     </div>
                   )}
                 </>

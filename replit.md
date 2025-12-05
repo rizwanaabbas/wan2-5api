@@ -3,9 +3,26 @@
 ## Overview
 VideoForge is an AI video generation platform leveraging Alibaba Cloud's Wan API via DashScope to create videos. It supports 13 Wan models across six generation categories (text-to-video, image-to-video, text-to-image, image-to-image, animation, keyframe-to-video), offering features like negative prompts, custom audio, and optimized resolutions. The platform provides a modern workspace for managing video generation projects, tracking real-time progress, organizing content, and creating storyboards with preview images before video generation, aiming to simplify AI-driven video creation for users.
 
-## Recent Changes (November 26, 2025)
+## Recent Changes (December 5, 2025)
 
-**Local Development Support (Latest)**
+**Video Generation Form Enhancements**
+1. **Duration Control**: Added dropdown selector for video duration (1-10 seconds)
+2. **Prompt Extend Toggle**: Added checkbox to control AI prompt expansion (default: enabled)
+3. **Custom Audio URL**: Changed from file upload to public URL input
+   - DashScope API requires publicly accessible HTTP/HTTPS URLs for audio
+   - Only MP3 format is supported
+   - Local file uploads are NOT supported for audio (unlike images)
+   - Clear warning message displayed in UI about this requirement
+4. **Schema Update**: Added `promptExtend` boolean column to videos table
+
+**Technical Details**
+- Backend passes `duration` and `promptExtend` parameters to Wan API
+- Duration parameter only applies to `wan2.5-t2v-preview` and `wan2.5-i2v-preview` models
+- Nullish coalescing used for proper default handling (duration=5, promptExtend=true)
+
+## Changes (November 26, 2025)
+
+**Local Development Support**
 1. **Database Driver**: Replaced Neon serverless driver with standard `pg` driver for local PostgreSQL
 2. **Local Disk Storage**: Created `DiskStorageService` in `server/diskStorage.ts` to replace cloud storage
    - Files stored in `./uploads` directory (configurable via `UPLOAD_DIR` env var)
