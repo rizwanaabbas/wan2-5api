@@ -182,8 +182,8 @@ async function startVideoGenerationJob(
         prompt,
         negativePrompt: options.negativePrompt,
         size,
-        duration: options.duration || 5,
-        promptExtend: options.promptExtend !== false, // Default to true if not explicitly set to false
+        duration: options.duration ?? 5,
+        promptExtend: options.promptExtend ?? true,
         audioMode: (options.audioMode as any) || "auto",
         audioUrl: audioDataUrl,
         imageUrl: imageDataUrl,
@@ -406,8 +406,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         imageUrl: data.sourceImageUrl || undefined,
         firstKeyframeUrl: data.firstKeyframeUrl || undefined,
         lastKeyframeUrl: data.lastKeyframeUrl || undefined,
-        duration: data.duration || 5,
-        promptExtend: data.promptExtend !== false,
+        duration: data.duration ?? 5, // Use nullish coalescing to preserve 0 but fallback for null/undefined
+        promptExtend: data.promptExtend ?? true, // Default to true if not specified
       }).catch(err => {
         console.error(`Background job failed for video ${video.id}:`, err);
       });

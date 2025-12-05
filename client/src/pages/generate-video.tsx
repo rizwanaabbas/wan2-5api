@@ -321,8 +321,8 @@ export default function GenerateVideo() {
       audioMode,
       audioUrl: audioUrl || undefined,
       audioFilename: customAudio?.name || undefined,
-      duration,
-      promptExtend,
+      duration: Number(duration), // Ensure numeric value
+      promptExtend: Boolean(promptExtend), // Ensure boolean value
     });
   };
 
