@@ -523,15 +523,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const diskStorage = new DiskStorageService();
       
-      if (!req.file) {
-        // If no file in request, return upload info for client-side PUT
-        const uploadId = diskStorage.generateUploadId();
-        const objectPath = diskStorage.getPublicPath(uploadId);
-        
+      // Helper function to get public base URL
+      const getPublicBaseUrl = () => {
+        // Use APP_BASE_URL if set (for production deployment)
+        if (process.env.APP_BASE_URL) {
+          return process.env.APP_BASE_URL.replace(/\/$/, ''); // Remove trailing slash
+        }
         const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
         const host = req.headers['x-forwarded-host'] || req.headers.host || req.hostname;
-        const uploadURL = `${protocol}://${host}/api/objects/put/${uploadId}`;
-        const publicUrl = `${protocol}://${host}${objectPath}`;
+        return `${protocol}://${host}`;
+      };
+      
+      const baseUrl = getPublicBaseUrl();
+      
+      if (!req.file) {
+        // If no file in request, return upload info for client-side PUT
+        // Get extension from query param or content-type header
+        const extension = req.query.ext as string || req.query.extension as string;
+        const uploadId = diskStorage.generateUploadId(extension);
+        const objectPath = diskStorage.getPublicPath(uploadId);
+        
+        const uploadURL = `${baseUrl}/api/objects/put/${uploadId}`;
+        const publicUrl = `${baseUrl}${objectPath}`;
+        
+        console.log(`[Upload] Generated upload URL: ${uploadURL}`);
+        console.log(`[Upload] Generated public URL: ${publicUrl}`);
         
         return res.json({ uploadURL, publicUrl, objectPath });
       }
@@ -540,9 +556,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const uploadId = diskStorage.generateUploadId();
       const objectPath = await diskStorage.saveFile(uploadId, req.file.buffer, req.file.mimetype);
       
-      const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-      const host = req.headers['x-forwarded-host'] || req.headers.host || req.hostname;
-      const publicUrl = `${protocol}://${host}${objectPath}`;
+      const publicUrl = `${baseUrl}${objectPath}`;
+      console.log(`[Upload] Saved file with public URL: ${publicUrl}`);
       
       res.json({ publicUrl, objectPath });
     } catch (error) {

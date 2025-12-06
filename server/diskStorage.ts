@@ -83,8 +83,15 @@ export class DiskStorageService {
   }
 
   // Generate a unique ID for a new upload
-  generateUploadId(): string {
-    return `uploads/${randomUUID()}`;
+  // If extension is provided (e.g., ".mp3"), it will be appended to the UUID
+  generateUploadId(extension?: string): string {
+    const uuid = randomUUID();
+    if (extension) {
+      // Ensure extension starts with a dot
+      const ext = extension.startsWith('.') ? extension : `.${extension}`;
+      return `uploads/${uuid}${ext}`;
+    }
+    return `uploads/${uuid}`;
   }
 
   // Get the public URL path for an upload
