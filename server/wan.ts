@@ -357,7 +357,7 @@ export async function generateWanVideo(
         parameters,
       }),
     });
-    console.log("Body: " + body);
+    //console.log("Body: " + body);
     console.log("Input: " + apiInput);
     console.log("Model: " + input.model);
     console.log("Params: " + parameters);
