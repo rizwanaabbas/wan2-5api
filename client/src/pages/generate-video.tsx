@@ -277,8 +277,8 @@ export default function GenerateVideo() {
         let uploadError = null;
         try {
           setIsUploading(true);
-          // Pass the .mp3 extension so DashScope can validate the URL
-          const uploadResponse = await fetch("/api/objects/upload?ext=.mp3", {
+          // Pass the original filename so DashScope can validate the URL (needs .mp3 extension)
+          const uploadResponse = await fetch(`/api/objects/upload?filename=${encodeURIComponent(customAudio.name)}`, {
             method: "POST",
           });
 

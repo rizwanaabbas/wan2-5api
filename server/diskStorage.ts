@@ -83,13 +83,21 @@ export class DiskStorageService {
   }
 
   // Generate a unique ID for a new upload
-  // If extension is provided (e.g., ".mp3"), it will be appended to the UUID
-  generateUploadId(extension?: string): string {
-    const uuid = randomUUID();
-    if (extension) {
-      // Ensure extension starts with a dot
-      const ext = extension.startsWith('.') ? extension : `.${extension}`;
-      return `uploads/${uuid}${ext}`;
+  // If filename is provided, use it with a UUID prefix for uniqueness
+  // If only extension is provided, use UUID with that extension
+  generateUploadId(filenameOrExtension?: string): string {
+    const uuid = randomUUID().slice(0, 8); // Short UUID prefix for uniqueness
+    
+    if (filenameOrExtension) {
+      // Check if it's a full filename (has characters before the extension)
+      if (filenameOrExtension.includes('.') && !filenameOrExtension.startsWith('.')) {
+        // It's a full filename - prefix with short UUID for uniqueness
+        return `uploads/${uuid}_${filenameOrExtension}`;
+      } else {
+        // It's just an extension
+        const ext = filenameOrExtension.startsWith('.') ? filenameOrExtension : `.${filenameOrExtension}`;
+        return `uploads/${uuid}${ext}`;
+      }
     }
     return `uploads/${uuid}`;
   }

@@ -538,9 +538,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (!req.file) {
         // If no file in request, return upload info for client-side PUT
-        // Get extension from query param or content-type header
+        // Get filename or extension from query param to preserve original name
+        const filename = req.query.filename as string;
         const extension = req.query.ext as string || req.query.extension as string;
-        const uploadId = diskStorage.generateUploadId(extension);
+        const uploadId = diskStorage.generateUploadId(filename || extension);
         const objectPath = diskStorage.getPublicPath(uploadId);
         
         const uploadURL = `${baseUrl}/api/objects/put/${uploadId}`;
