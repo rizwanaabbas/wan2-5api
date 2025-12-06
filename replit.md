@@ -3,17 +3,22 @@
 ## Overview
 VideoForge is an AI video generation platform leveraging Alibaba Cloud's Wan API via DashScope to create videos. It supports 13 Wan models across six generation categories (text-to-video, image-to-video, text-to-image, image-to-image, animation, keyframe-to-video), offering features like negative prompts, custom audio, and optimized resolutions. The platform provides a modern workspace for managing video generation projects, tracking real-time progress, organizing content, and creating storyboards with preview images before video generation, aiming to simplify AI-driven video creation for users.
 
-## Recent Changes (December 5, 2025)
+## Recent Changes (December 6, 2025)
+
+**Audio File Upload with Auto Public URL**
+1. **Restored Audio File Upload**: Changed back from URL input to file upload
+2. **Auto Base URL Detection**: Set `APP_BASE_URL=https://videos.houser.ae` environment variable
+3. **Upload Flow**: Audio files are uploaded to server and get public URLs automatically
+   - Files stored in `./uploads` directory via DiskStorageService
+   - Server returns public URL like `https://videos.houser.ae/objects/uploads/{uuid}`
+   - This public URL is passed to DashScope API for video generation
+
+## Changes (December 5, 2025)
 
 **Video Generation Form Enhancements**
 1. **Duration Control**: Added dropdown selector for video duration (1-10 seconds)
 2. **Prompt Extend Toggle**: Added checkbox to control AI prompt expansion (default: enabled)
-3. **Custom Audio URL**: Changed from file upload to public URL input
-   - DashScope API requires publicly accessible HTTP/HTTPS URLs for audio
-   - Only MP3 format is supported
-   - Local file uploads are NOT supported for audio (unlike images)
-   - Clear warning message displayed in UI about this requirement
-4. **Schema Update**: Added `promptExtend` boolean column to videos table
+3. **Schema Update**: Added `promptExtend` boolean column to videos table
 
 **Technical Details**
 - Backend passes `duration` and `promptExtend` parameters to Wan API
