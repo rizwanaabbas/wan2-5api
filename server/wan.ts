@@ -344,6 +344,13 @@ export async function generateWanVideo(
     // For custom audio, we don't include the audio parameter - it's implicit from audio_url
 
     // Submit video generation task
+    const requestBody = {
+      model: input.model,
+      input: apiInput,
+      parameters,
+    };
+
+    console.log("REQUEST BODY:", JSON.stringify(requestBody, null, 2));
     const response = await fetch(DASHSCOPE_API_URL, {
       method: "POST",
       headers: {
@@ -351,11 +358,7 @@ export async function generateWanVideo(
         "Content-Type": "application/json",
         "X-DashScope-Async": "enable",
       },
-      body: JSON.stringify({
-        model: input.model,
-        input: apiInput,
-        parameters,
-      }),
+      body: JSON.stringify(requestBody),
     });
     //console.log("Body: " + body);
     console.log("Input: " + apiInput);
