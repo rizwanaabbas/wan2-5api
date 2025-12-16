@@ -199,7 +199,7 @@ async function pollTaskStatus(
       }
 
       // Wait 10 seconds before next poll
-      await new Promise((resolve) => setTimeout(resolve, 10000));
+      await new Promise((resolve) => setTimeout(resolve, 5000));
       attempts++;
     } catch (error) {
       if (
@@ -210,7 +210,7 @@ async function pollTaskStatus(
       }
       console.error(`Polling error on attempt ${attempts + 1}:`, error);
       // Continue polling on temporary errors
-      await new Promise((resolve) => setTimeout(resolve, 10000));
+      await new Promise((resolve) => setTimeout(resolve, 5000));
       attempts++;
     }
   }
@@ -431,7 +431,7 @@ export async function generateTextToImage(
           "X-DashScope-Async": "enable",
         },
         body: JSON.stringify({
-          model: "wan2.5-t2i-preview",
+          model: "wan2.6-i2v",
           input: {
             prompt,
           },
@@ -516,7 +516,7 @@ export async function generateImageToImage(
           "X-DashScope-Async": "enable",
         },
         body: JSON.stringify({
-          model: "wan2.5-i2i-preview",
+          model: "wan2.6-i2v",
           input: {
             prompt,
             images: base64Images,
@@ -685,7 +685,7 @@ export async function startTextToImageTask(
         "X-DashScope-Async": "enable",
       },
       body: JSON.stringify({
-        model: "wan2.5-t2i-preview",
+        model: "wan2.6-i2v",
         input: {
           prompt,
         },
@@ -759,7 +759,7 @@ export async function startImageToImageTask(
         "X-DashScope-Async": "enable",
       },
       body: JSON.stringify({
-        model: "wan2.5-i2i-preview",
+        model: "wan2.6-i2v",
         input: {
           prompt,
           images: base64Images,
