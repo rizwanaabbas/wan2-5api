@@ -330,7 +330,8 @@ export async function generateWanVideo(
     if (
       input.duration &&
       (input.model === "wan2.5-t2v-preview" ||
-        input.model === "wan2.5-i2v-preview")
+        input.model === "wan2.5-i2v-preview" ||
+        input.model === "wan2.6-i2v-720p")
     ) {
       parameters.duration = input.duration;
     }
