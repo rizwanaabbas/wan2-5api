@@ -750,7 +750,7 @@ export async function startImageToImageTask(
   );
 
   const response = await fetch(
-    "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/image2image/image-synthesis",
+    "POST https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/image-generation/generation",
     {
       method: "POST",
       headers: {
@@ -759,7 +759,7 @@ export async function startImageToImageTask(
         "X-DashScope-Async": "enable",
       },
       body: JSON.stringify({
-        model: "wan2.6-i2v",
+        model: "wan2.6-image",
         input: {
           prompt,
           images: base64Images,
