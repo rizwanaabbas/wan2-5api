@@ -48,15 +48,15 @@ export default function GenerateVideo() {
     enabled: !!projectId,
   });
 
-  // Set default model from project when project loads
+  // Set default model from project when project loads (only if model exists)
   useEffect(() => {
-    if (project?.defaultModel) {
+    if (project?.defaultModel && WAN_MODELS[project.defaultModel]) {
       setModel(project.defaultModel as ModelType);
     }
   }, [project?.defaultModel]);
 
-  // Get current model metadata
-  const selectedModelMeta = WAN_MODELS[model];
+  // Get current model metadata (with fallback if model doesn't exist)
+  const selectedModelMeta = WAN_MODELS[model] || WAN_MODELS["wan2.5-t2v-preview"];
   const generationType: GenerationType = selectedModelMeta.category;
 
   const generateMutation = useMutation({
