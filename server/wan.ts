@@ -935,7 +935,7 @@ export async function checkWan26ImageTaskStatus(
   const result = await response.json();
   const taskStatus = result.output?.task_status;
 
-  console.log(`Wan 2.6 Image task ${taskId} status:`, taskStatus);
+  console.log(`Wan 2.6 Image task ${taskId} status:`, taskStatus, JSON.stringify(result.output, null, 2));
 
   if (taskStatus === "SUCCEEDED") {
     // Extract all image URLs from results
@@ -948,7 +948,13 @@ export async function checkWan26ImageTaskStatus(
       }
     }
     
-    console.log(`Wan 2.6 Image generation success, ${imageUrls.length} images generated`);
+    console.log(`Wan 2.6 Image generation success, ${imageUrls.length} images:`, imageUrls);
+    
+    // If no URLs found, check if there's an alternative structure
+    if (imageUrls.length === 0) {
+      console.error("No image URLs found in result. Full output:", JSON.stringify(result, null, 2));
+    }
+    
     return {
       status: "completed",
       progress: 100,
