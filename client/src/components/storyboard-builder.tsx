@@ -59,11 +59,16 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
   ]);
   const { toast } = useToast();
   const [selectedPromptId, setSelectedPromptId] = useState<string>("1");
-  const [selectedResolution, setSelectedResolution] = useState<string>("1024*1024");
+  const [selectedResolution, setSelectedResolution] = useState<string>("1280*1280");
   const [storyboardName, setStoryboardName] = useState<string>("");
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  
+  // Wan 2.6 Image specific options
+  const [imageCount, setImageCount] = useState<number>(1);
+  const [promptExtend, setPromptExtend] = useState<boolean>(true);
+  const [negativePrompt, setNegativePrompt] = useState<string>("");
   
   // Progress tracking state
   const [generationProgress, setGenerationProgress] = useState<number>(0);
@@ -260,9 +265,18 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
     }
   };
 
-  // Poll for task status
+  // Poll for task status (standard single-image tasks)
   const pollTaskStatus = useCallback(async (taskId: string): Promise<{ status: string; progress: number; imageUrl?: string; error?: string }> => {
     const res = await fetch(`/api/generate/task/${taskId}`);
+    if (!res.ok) {
+      throw new Error("Failed to check task status");
+    }
+    return res.json();
+  }, []);
+
+  // Poll for wan2.6-image task status (supports multiple images)
+  const pollWan26TaskStatus = useCallback(async (taskId: string): Promise<{ status: string; progress: number; imageUrls?: string[]; error?: string }> => {
+    const res = await fetch(`/api/generate/wan26-image/task/${taskId}`);
     if (!res.ok) {
       throw new Error("Failed to check task status");
     }
@@ -298,65 +312,123 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
         ? `${prompt.text} ${projectGlobalPrompt}`
         : prompt.text;
 
-      // Start the generation task
-      const endpoint = generationType === "t2i" 
-        ? "/api/generate/text-to-image/start" 
-        : "/api/generate/image-to-image/start";
-      
-      const startRes = await apiRequest("POST", endpoint, {
-        prompt: fullPrompt,
-        imageUrls: generationType === "i2i" ? prompt.sourceImages : undefined,
-        size: selectedResolution,
-      });
-      
-      const { taskId } = await startRes.json();
-      setCurrentTaskId(taskId);
-      setGenerationProgress(10);
-
-      // Poll for completion
-      let attempts = 0;
-      const maxAttempts = 120; // 2 minutes at 1 second intervals
-      
-      while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      // Use wan2.6-image API for I2I, standard API for T2I
+      if (generationType === "i2i") {
+        // Use new wan2.6-image API with messages-based format
+        const startRes = await apiRequest("POST", "/api/generate/wan26-image/start", {
+          prompt: fullPrompt,
+          imageUrls: prompt.sourceImages,
+          size: selectedResolution,
+          negativePrompt,
+          promptExtend,
+          n: imageCount,
+        });
         
-        const status = await pollTaskStatus(taskId);
-        setGenerationProgress(status.progress);
+        const { taskId } = await startRes.json();
+        setCurrentTaskId(taskId);
+        setGenerationProgress(10);
+
+        // Poll for completion (wan2.6-image supports multiple images)
+        let attempts = 0;
+        const maxAttempts = 180; // 3 minutes at 1 second intervals
         
-        if (status.status === "completed" && status.imageUrl) {
-          const newImage: GeneratedImageWithPrompt = {
-            prompt: fullPrompt,
-            sourceImages: generationType === "i2i" ? prompt.sourceImages : [],
-            generatedImageUrl: status.imageUrl,
-            order: prompt.generatedImages.length,
-          };
-
-          setPrompts(prev => prev.map(p => 
-            p.id === promptId 
-              ? { ...p, generatedImages: [newImage, ...p.generatedImages], isGenerating: false }
-              : p
-          ));
-
-          // Show the generated image in viewer
-          setViewerImage(newImage);
-          setViewerOpen(true);
-
-          toast({
-            title: "Image generated successfully!",
-            description: "Click to view and download your image",
-          });
+        while (attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
           
-          setCurrentTaskId(null);
-          setGenerationProgress(0);
-          return;
-        } else if (status.status === "failed") {
-          throw new Error(status.error || "Image generation failed");
-        }
-        
-        attempts++;
-      }
+          const status = await pollWan26TaskStatus(taskId);
+          setGenerationProgress(status.progress);
+          
+          if (status.status === "completed" && status.imageUrls && status.imageUrls.length > 0) {
+            // Create new images for all generated results
+            const newImages: GeneratedImageWithPrompt[] = status.imageUrls.map((url, idx) => ({
+              prompt: fullPrompt,
+              sourceImages: prompt.sourceImages,
+              generatedImageUrl: url,
+              order: prompt.generatedImages.length + idx,
+            }));
 
-      throw new Error("Generation timed out");
+            setPrompts(prev => prev.map(p => 
+              p.id === promptId 
+                ? { ...p, generatedImages: [...newImages, ...p.generatedImages], isGenerating: false }
+                : p
+            ));
+
+            // Show the first generated image in viewer
+            setViewerImage(newImages[0]);
+            setViewerOpen(true);
+
+            toast({
+              title: `${newImages.length} image(s) generated successfully!`,
+              description: "Click to view and download your images",
+            });
+            
+            setCurrentTaskId(null);
+            setGenerationProgress(0);
+            return;
+          } else if (status.status === "failed") {
+            throw new Error(status.error || "Image generation failed");
+          }
+          
+          attempts++;
+        }
+
+        throw new Error("Generation timed out");
+      } else {
+        // Standard T2I generation
+        const startRes = await apiRequest("POST", "/api/generate/text-to-image/start", {
+          prompt: fullPrompt,
+          size: selectedResolution,
+        });
+        
+        const { taskId } = await startRes.json();
+        setCurrentTaskId(taskId);
+        setGenerationProgress(10);
+
+        // Poll for completion
+        let attempts = 0;
+        const maxAttempts = 120; // 2 minutes at 1 second intervals
+        
+        while (attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          const status = await pollTaskStatus(taskId);
+          setGenerationProgress(status.progress);
+          
+          if (status.status === "completed" && status.imageUrl) {
+            const newImage: GeneratedImageWithPrompt = {
+              prompt: fullPrompt,
+              sourceImages: [],
+              generatedImageUrl: status.imageUrl,
+              order: prompt.generatedImages.length,
+            };
+
+            setPrompts(prev => prev.map(p => 
+              p.id === promptId 
+                ? { ...p, generatedImages: [newImage, ...p.generatedImages], isGenerating: false }
+                : p
+            ));
+
+            // Show the generated image in viewer
+            setViewerImage(newImage);
+            setViewerOpen(true);
+
+            toast({
+              title: "Image generated successfully!",
+              description: "Click to view and download your image",
+            });
+            
+            setCurrentTaskId(null);
+            setGenerationProgress(0);
+            return;
+          } else if (status.status === "failed") {
+            throw new Error(status.error || "Image generation failed");
+          }
+          
+          attempts++;
+        }
+
+        throw new Error("Generation timed out");
+      }
     } catch (error) {
       toast({
         title: "Generation failed",
@@ -679,6 +751,59 @@ export function StoryboardBuilder({ onComplete, onCancel, projectGlobalPrompt, g
                         ))}
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* Wan 2.6 Image Options (for I2I only) */}
+                {generationType === "i2i" && (
+                  <div className="space-y-4 border-t pt-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Number of Images */}
+                      <div className="space-y-2">
+                        <Label htmlFor="image-count-select">Number of Images</Label>
+                        <Select value={String(imageCount)} onValueChange={(v) => setImageCount(Number(v))}>
+                          <SelectTrigger id="image-count-select" data-testid="select-image-count">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1">1 image</SelectItem>
+                            <SelectItem value="2">2 images</SelectItem>
+                            <SelectItem value="3">3 images</SelectItem>
+                            <SelectItem value="4">4 images</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Prompt Extend Toggle */}
+                      <div className="space-y-2">
+                        <Label htmlFor="prompt-extend-toggle">AI Prompt Enhancement</Label>
+                        <div className="flex items-center gap-2 h-9">
+                          <input
+                            type="checkbox"
+                            id="prompt-extend-toggle"
+                            checked={promptExtend}
+                            onChange={(e) => setPromptExtend(e.target.checked)}
+                            className="w-4 h-4 rounded border-border"
+                            data-testid="checkbox-prompt-extend"
+                          />
+                          <span className="text-sm text-muted-foreground">
+                            {promptExtend ? "Enabled" : "Disabled"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Negative Prompt */}
+                    <div className="space-y-2">
+                      <Label htmlFor="negative-prompt">Negative Prompt (Optional)</Label>
+                      <Input
+                        id="negative-prompt"
+                        value={negativePrompt}
+                        onChange={(e) => setNegativePrompt(e.target.value)}
+                        placeholder="What you don't want to see in the image..."
+                        data-testid="input-negative-prompt"
+                      />
+                    </div>
                   </div>
                 )}
 

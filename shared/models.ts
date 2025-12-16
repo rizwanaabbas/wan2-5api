@@ -95,6 +95,17 @@ export const WAN_MODELS: Record<string, ModelDefinition> = {
     category: "image-to-image",
     supportsImage: true,
   },
+  "wan2.6-image": {
+    id: "wan2.6-image",
+    name: "Wan 2.6 Image",
+    type: "Image Edit (Latest)",
+    speed: "Fast",
+    quality: "Excellent",
+    cost: "Low",
+    bestUseCase: "Latest model for image editing with multi-image support and style transfer.",
+    category: "image-to-image",
+    supportsImage: true,
+  },
   "wan2.2-i2v-flash": {
     id: "wan2.2-i2v-flash",
     name: "Wan 2.2 I2V Flash",

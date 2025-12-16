@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { DiskStorageService, ObjectNotFoundError, PathTraversalError, getPublicBaseUrl, buildPublicAssetUrl } from "./diskStorage";
 import { insertProjectSchema, insertVideoSchema, insertStoryboardSchema, insertStoryboardImageSchema, insertSavedFileSchema } from "@shared/schema";
-import { generateWanVideo, getWanSize, generateTextToImage, generateImageToImage, startTextToImageTask, startImageToImageTask, checkImageTaskStatus } from "./wan";
+import { generateWanVideo, getWanSize, generateTextToImage, generateImageToImage, startTextToImageTask, startImageToImageTask, checkImageTaskStatus, startWan26ImageTask, checkWan26ImageTaskStatus } from "./wan";
 import { scryptSync, randomBytes } from "crypto";
 import multer from "multer";
 import * as fs from "fs";
@@ -23,10 +23,11 @@ const upload = multer({
 // In-memory task store for image generation progress tracking
 interface ImageTask {
   id: string;
-  type: "t2i" | "i2i";
+  type: "t2i" | "i2i" | "wan26-image";
   status: "pending" | "processing" | "completed" | "failed";
   progress: number;
   imageUrl?: string;
+  imageUrls?: string[];
   error?: string;
   dashscopeTaskId?: string;
   createdAt: Date;
@@ -849,6 +850,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("I2I start error:", error);
       res.status(500).json({ error: error instanceof Error ? error.message : "Failed to start image generation" });
+    }
+  });
+
+  // Wan 2.6 Image generation (messages-based API)
+  app.post("/api/generate/wan26-image/start", async (req, res) => {
+    try {
+      const { 
+        prompt, 
+        imageUrls, 
+        size = "1280*1280", 
+        negativePrompt = "",
+        promptExtend = true,
+        watermark = false,
+        n = 1
+      } = req.body;
+
+      if (!prompt || typeof prompt !== "string") {
+        return res.status(400).json({ error: "Prompt is required" });
+      }
+
+      if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length === 0) {
+        return res.status(400).json({ error: "At least one image URL is required" });
+      }
+
+      // Validate n is between 1 and 4
+      const imageCount = Math.min(Math.max(parseInt(n) || 1, 1), 4);
+
+      const formattedSize = size.includes("x") ? size.replace("x", "*") : size;
+      const dashscopeTaskId = await startWan26ImageTask({
+        prompt,
+        imageUrls,
+        negativePrompt,
+        promptExtend,
+        watermark,
+        n: imageCount,
+        size: formattedSize,
+      });
+      
+      // Create local task entry for tracking
+      const taskId = `wan26_${Date.now()}_${dashscopeTaskId}`;
+      imageTasks.set(taskId, {
+        id: taskId,
+        type: "wan26-image",
+        status: "processing",
+        progress: 10,
+        createdAt: new Date(),
+      });
+
+      // Store the DashScope task ID mapping
+      (imageTasks.get(taskId) as any).dashscopeTaskId = dashscopeTaskId;
+
+      res.json({ success: true, taskId, dashscopeTaskId });
+    } catch (error) {
+      console.error("Wan 2.6 Image start error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to start image generation" });
+    }
+  });
+
+  // Check Wan 2.6 Image task status (supports multiple images)
+  app.get("/api/generate/wan26-image/task/:taskId", async (req, res) => {
+    try {
+      const { taskId } = req.params;
+      const task = imageTasks.get(taskId);
+
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+
+      // If already completed or failed, return cached result
+      if (task.status === "completed" || task.status === "failed") {
+        return res.json({
+          status: task.status,
+          progress: task.progress,
+          imageUrls: (task as any).imageUrls || [],
+          error: task.error,
+        });
+      }
+
+      // Check DashScope task status
+      const dashscopeTaskId = (task as any).dashscopeTaskId;
+      if (!dashscopeTaskId) {
+        return res.status(500).json({ error: "Missing DashScope task ID" });
+      }
+
+      const result = await checkWan26ImageTaskStatus(dashscopeTaskId);
+      
+      // Update local task cache
+      task.status = result.status as any;
+      task.progress = result.progress;
+      if (result.imageUrls) (task as any).imageUrls = result.imageUrls;
+      if (result.error) task.error = result.error;
+
+      res.json({
+        status: task.status,
+        progress: task.progress,
+        imageUrls: (task as any).imageUrls || [],
+        error: task.error,
+      });
+    } catch (error) {
+      console.error("Wan 2.6 Image task status check error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to check task status" });
     }
   });
 

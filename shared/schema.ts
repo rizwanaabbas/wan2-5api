@@ -134,7 +134,8 @@ export type ModelType =
   | "wan2.2-t2i-flash"
   | "wan2.1-vace-plus"
   | "wan2.1-kf2v-plus"
-  | "wan2.6-i2v";
+  | "wan2.6-i2v"
+  | "wan2.6-image";
 
 export type GenerationType = "text-to-video" | "image-to-video" | "text-to-image" | "image-to-image" | "animation" | "keyframe";
 export type VideoStatus = "pending" | "processing" | "completed" | "failed";

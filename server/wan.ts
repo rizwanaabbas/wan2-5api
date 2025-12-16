@@ -750,7 +750,7 @@ export async function startImageToImageTask(
   );
 
   const response = await fetch(
-    "POST https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/image-generation/generation",
+    "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/image2image/image-synthesis",
     {
       method: "POST",
       headers: {
@@ -759,7 +759,7 @@ export async function startImageToImageTask(
         "X-DashScope-Async": "enable",
       },
       body: JSON.stringify({
-        model: "wan2.6-image",
+        model: "wan2.5-i2i-preview",
         input: {
           prompt,
           images: base64Images,
@@ -791,6 +791,189 @@ export async function startImageToImageTask(
     `I2I task started: ${result.output.task_id}, Prompt: "${prompt.substring(0, 50)}...", Images: ${imageUrls.length}, Size: ${size}`,
   );
   return result.output.task_id;
+}
+
+// Wan 2.6 Image model with messages-based API format
+export interface Wan26ImageInput {
+  prompt: string;
+  imageUrls: string[];
+  negativePrompt?: string;
+  promptExtend?: boolean;
+  watermark?: boolean;
+  n?: number;
+  size?: string;
+}
+
+export interface Wan26ImageResult {
+  imageUrls: string[];
+  taskId: string;
+}
+
+export async function startWan26ImageTask(
+  input: Wan26ImageInput,
+): Promise<string> {
+  if (!process.env.DASHSCOPE_API_KEY) {
+    throw new Error("DASHSCOPE_API_KEY not configured.");
+  }
+
+  if (!input.imageUrls || input.imageUrls.length === 0) {
+    throw new Error(
+      "At least one image URL is required for wan2.6-image generation",
+    );
+  }
+
+  // Convert all image URLs to base64
+  console.log(
+    `Converting ${input.imageUrls.length} images to base64 for Wan 2.6 Image task...`,
+  );
+  const base64Images = await Promise.all(
+    input.imageUrls.map(async (url, index) => {
+      console.log(
+        `Converting image ${index + 1}/${input.imageUrls.length}: ${url.substring(0, 50)}...`,
+      );
+      return await convertToBase64(url);
+    }),
+  );
+  console.log(
+    `All ${input.imageUrls.length} images converted to base64 successfully`,
+  );
+
+  // Build messages content array with text and images
+  const content: any[] = [
+    { text: input.prompt }
+  ];
+  
+  // Add each image to the content
+  for (const base64Image of base64Images) {
+    content.push({ image: base64Image });
+  }
+
+  const requestBody = {
+    model: "wan2.6-image",
+    input: {
+      messages: [
+        {
+          role: "user",
+          content,
+        }
+      ]
+    },
+    parameters: {
+      negative_prompt: input.negativePrompt || "",
+      prompt_extend: input.promptExtend !== false,
+      watermark: input.watermark || false,
+      n: input.n || 1,
+      size: input.size || "1280*1280",
+    }
+  };
+
+  console.log("Wan 2.6 Image request:", JSON.stringify({
+    ...requestBody,
+    input: { messages: [{ role: "user", content: `[text + ${base64Images.length} images]` }] }
+  }, null, 2));
+
+  const response = await fetch(
+    "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/image-generation/generation",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.DASHSCOPE_API_KEY}`,
+        "Content-Type": "application/json",
+        "X-DashScope-Async": "enable",
+      },
+      body: JSON.stringify(requestBody),
+    },
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Wan 2.6 Image task submission failed:", errorText);
+    throw new Error(
+      `Failed to submit Wan 2.6 Image task: ${response.statusText} - ${errorText}`,
+    );
+  }
+
+  const result = await response.json();
+
+  if (!result.output?.task_id) {
+    console.error("No task ID in response:", result);
+    throw new Error("No task ID returned from API");
+  }
+
+  console.log(
+    `Wan 2.6 Image task started: ${result.output.task_id}, Prompt: "${input.prompt.substring(0, 50)}...", Images: ${input.imageUrls.length}, Size: ${input.size || "1280*1280"}, N: ${input.n || 1}`,
+  );
+  return result.output.task_id;
+}
+
+export async function checkWan26ImageTaskStatus(
+  taskId: string,
+): Promise<{ status: string; progress: number; imageUrls?: string[]; error?: string }> {
+  if (!process.env.DASHSCOPE_API_KEY) {
+    throw new Error("DASHSCOPE_API_KEY not configured.");
+  }
+
+  const response = await fetch(
+    `https://dashscope-intl.aliyuncs.com/api/v1/tasks/${taskId}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${process.env.DASHSCOPE_API_KEY}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(
+      `Task status check failed: ${response.statusText}`,
+      errorText,
+    );
+    throw new Error(`Failed to check task status: ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  const taskStatus = result.output?.task_status;
+
+  console.log(`Wan 2.6 Image task ${taskId} status:`, taskStatus);
+
+  if (taskStatus === "SUCCEEDED") {
+    // Extract all image URLs from results
+    const imageUrls: string[] = [];
+    if (result.output?.results) {
+      for (const item of result.output.results) {
+        if (item.url) {
+          imageUrls.push(item.url);
+        }
+      }
+    }
+    
+    console.log(`Wan 2.6 Image generation success, ${imageUrls.length} images generated`);
+    return {
+      status: "completed",
+      progress: 100,
+      imageUrls,
+    };
+  } else if (taskStatus === "FAILED") {
+    const errorMsg =
+      result.output?.message || result.output?.code || "Unknown error";
+    console.error(`Wan 2.6 Image generation failed:`, errorMsg);
+    return {
+      status: "failed",
+      progress: 0,
+      error: errorMsg,
+    };
+  } else if (taskStatus === "RUNNING") {
+    return {
+      status: "processing",
+      progress: 50,
+    };
+  } else {
+    return {
+      status: "pending",
+      progress: 10,
+    };
+  }
 }
 
 export async function checkImageTaskStatus(
