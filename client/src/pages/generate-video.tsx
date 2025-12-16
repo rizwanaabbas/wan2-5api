@@ -25,7 +25,7 @@ export default function GenerateVideo() {
   const projectId = params?.id;
   const { toast } = useToast();
 
-  const [model, setModel] = useState<ModelType>("wan2.5-t2v-preview");
+  const [model, setModel] = useState<ModelType>("wan2.6-i2v");
   const [videoName, setVideoName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
@@ -56,7 +56,7 @@ export default function GenerateVideo() {
   }, [project?.defaultModel]);
 
   // Get current model metadata (with fallback if model doesn't exist)
-  const selectedModelMeta = WAN_MODELS[model] || WAN_MODELS["wan2.5-t2v-preview"];
+  const selectedModelMeta = WAN_MODELS[model] || WAN_MODELS["wan2.6-i2v"];
   const generationType: GenerationType = selectedModelMeta.category;
 
   const generateMutation = useMutation({
