@@ -61,14 +61,14 @@ export const WAN_MODELS: Record<string, ModelDefinition> = {
     supportsAudio: true,
     supportsDuration: true,
   },
-  "wan2.6-i2v-720p": {
-    id: "wan2.6-i2v-720p",
-    name: "Wan 2.6 I2V 720p",
+  "wan2.6-i2v": {
+    id: "wan2.6-i2v",
+    name: "Wan 2.6 I2V",
     type: "Image-to-Video (latest)",
     speed: "Medium",
     quality: "Excellent",
     cost: "Medium-High",
-    bestUseCase: "Latest model for image-to-video with excellent motion and detail at 720p.",
+    bestUseCase: "Latest model for image-to-video with excellent motion and detail.",
     category: "image-to-video",
     supportsImage: true,
     supportsAudio: true,
