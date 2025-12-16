@@ -908,6 +908,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Helper to download and save an image from URL to disk storage
+  async function downloadAndSaveImage(imageUrl: string): Promise<string> {
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to download image: ${response.statusText}`);
+    }
+    
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const contentType = response.headers.get("content-type") || "image/png";
+    
+    // Determine extension from content type
+    let ext = ".png";
+    if (contentType.includes("jpeg") || contentType.includes("jpg")) {
+      ext = ".jpg";
+    } else if (contentType.includes("webp")) {
+      ext = ".webp";
+    }
+    
+    const storage = new DiskStorageService();
+    const uploadId = storage.generateUploadId(`generated${ext}`);
+    await storage.saveFile(uploadId, buffer, contentType);
+    
+    const baseUrl = process.env.APP_BASE_URL || "";
+    return `${baseUrl}/objects/${uploadId}`;
+  }
+
   // Check Wan 2.6 Image task status (supports multiple images)
   app.get("/api/generate/wan26-image/task/:taskId", async (req, res) => {
     try {
@@ -923,7 +949,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({
           status: task.status,
           progress: task.progress,
-          imageUrls: (task as any).imageUrls || [],
+          imageUrls: (task as any).savedImageUrls || [],
           error: task.error,
         });
       }
@@ -939,13 +965,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update local task cache
       task.status = result.status as any;
       task.progress = result.progress;
-      if (result.imageUrls) (task as any).imageUrls = result.imageUrls;
       if (result.error) task.error = result.error;
+
+      // If completed, download and save the images to local storage
+      if (result.status === "completed" && result.imageUrls && result.imageUrls.length > 0) {
+        console.log(`Downloading ${result.imageUrls.length} images to local storage...`);
+        try {
+          const savedUrls = await Promise.all(
+            result.imageUrls.map(url => downloadAndSaveImage(url))
+          );
+          (task as any).savedImageUrls = savedUrls;
+          console.log(`Saved ${savedUrls.length} images:`, savedUrls);
+        } catch (downloadError) {
+          console.error("Failed to download and save images:", downloadError);
+          // Fall back to original URLs if saving fails
+          (task as any).savedImageUrls = result.imageUrls;
+        }
+      }
 
       res.json({
         status: task.status,
         progress: task.progress,
-        imageUrls: (task as any).imageUrls || [],
+        imageUrls: (task as any).savedImageUrls || [],
         error: task.error,
       });
     } catch (error) {
