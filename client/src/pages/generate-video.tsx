@@ -37,7 +37,7 @@ export default function GenerateVideo() {
   const [customAudio, setCustomAudio] = useState<File | null>(null);
   const [uploadedAudioUrl, setUploadedAudioUrl] = useState<string | null>(null); // Cached public URL after upload
   const [uploadedAudioFile, setUploadedAudioFile] = useState<File | null>(null); // Reference to the uploaded file for identity check
-  const [duration, setDuration] = useState<number>(5);
+  const [duration, setDuration] = useState<number | null>(5);
   const [promptExtend, setPromptExtend] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -337,7 +337,7 @@ export default function GenerateVideo() {
       audioMode,
       audioUrl: customAudioUrl || undefined,
       audioFilename: audioFilename || undefined,
-      duration: Number(duration), // Ensure numeric value
+      duration: duration !== null ? Number(duration) : undefined, // Exclude if "Auto" selected
       promptExtend: Boolean(promptExtend), // Ensure boolean value
     });
   };
@@ -591,13 +591,14 @@ export default function GenerateVideo() {
                     Video Duration
                   </Label>
                   <Select
-                    value={String(duration)}
-                    onValueChange={(value) => setDuration(Number(value))}
+                    value={duration === null ? "auto" : String(duration)}
+                    onValueChange={(value) => setDuration(value === "auto" ? null : Number(value))}
                   >
                     <SelectTrigger data-testid="select-duration">
                       <SelectValue placeholder="Select duration" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="auto">Auto (model default)</SelectItem>
                       {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((sec) => (
                         <SelectItem key={sec} value={String(sec)}>
                           {sec} {sec === 1 ? "second" : "seconds"}
@@ -606,7 +607,7 @@ export default function GenerateVideo() {
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Duration of the generated video (1-10 seconds)
+                    Duration of the generated video (Auto or 1-10 seconds)
                   </p>
                 </div>
 
@@ -721,7 +722,7 @@ export default function GenerateVideo() {
                 </div>
                 <div>
                   <Label className="text-sm font-semibold">Duration</Label>
-                  <p className="text-sm mt-1">{duration} {duration === 1 ? "second" : "seconds"}</p>
+                  <p className="text-sm mt-1">{duration === null ? "Auto (model default)" : `${duration} ${duration === 1 ? "second" : "seconds"}`}</p>
                 </div>
               </div>
 
