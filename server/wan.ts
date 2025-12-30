@@ -796,9 +796,10 @@ export async function startImageToImageTask(
 }
 
 // Wan 2.6 Image model with messages-based API format
+// Supports both text-to-image (no images) and image-to-image (with reference images)
 export interface Wan26ImageInput {
   prompt: string;
-  imageUrls: string[];
+  imageUrls?: string[];  // Optional - if not provided, runs in text-to-image mode
   negativePrompt?: string;
   promptExtend?: boolean;
   watermark?: boolean;
@@ -818,36 +819,34 @@ export async function startWan26ImageTask(
     throw new Error("DASHSCOPE_API_KEY not configured.");
   }
 
-  if (!input.imageUrls || input.imageUrls.length === 0) {
-    throw new Error(
-      "At least one image URL is required for wan2.6-image generation",
-    );
-  }
-
-  // Convert all image URLs to base64
-  console.log(
-    `Converting ${input.imageUrls.length} images to base64 for Wan 2.6 Image task...`,
-  );
-  const base64Images = await Promise.all(
-    input.imageUrls.map(async (url, index) => {
-      console.log(
-        `Converting image ${index + 1}/${input.imageUrls.length}: ${url.substring(0, 50)}...`,
-      );
-      return await convertToBase64(url);
-    }),
-  );
-  console.log(
-    `All ${input.imageUrls.length} images converted to base64 successfully`,
-  );
-
-  // Build messages content array with text and images
+  // Build messages content array with text and optional images
   const content: any[] = [
     { text: input.prompt }
   ];
   
-  // Add each image to the content
-  for (const base64Image of base64Images) {
-    content.push({ image: base64Image });
+  // Convert images to base64 if provided (image-to-image mode)
+  if (input.imageUrls && input.imageUrls.length > 0) {
+    console.log(
+      `Converting ${input.imageUrls.length} images to base64 for Wan 2.6 Image task...`,
+    );
+    const base64Images = await Promise.all(
+      input.imageUrls.map(async (url, index) => {
+        console.log(
+          `Converting image ${index + 1}/${input.imageUrls.length}: ${url.substring(0, 50)}...`,
+        );
+        return await convertToBase64(url);
+      }),
+    );
+    console.log(
+      `All ${input.imageUrls.length} images converted to base64 successfully`,
+    );
+    
+    // Add each image to the content
+    for (const base64Image of base64Images) {
+      content.push({ image: base64Image });
+    }
+  } else {
+    console.log("No reference images provided - running in text-to-image mode");
   }
 
   const requestBody = {
@@ -903,7 +902,7 @@ export async function startWan26ImageTask(
   }
 
   console.log(
-    `Wan 2.6 Image task started: ${result.output.task_id}, Prompt: "${input.prompt.substring(0, 50)}...", Images: ${input.imageUrls.length}, Size: ${input.size || "1280*1280"}, N: ${input.n || 1}`,
+    `Wan 2.6 Image task started: ${result.output.task_id}, Prompt: "${input.prompt.substring(0, 50)}...", Images: ${input.imageUrls?.length || 0}, Size: ${input.size || "1280*1280"}, N: ${input.n || 1}`,
   );
   return result.output.task_id;
 }
