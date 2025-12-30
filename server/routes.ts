@@ -554,8 +554,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ uploadURL, publicUrl, objectPath });
       }
       
-      // File was uploaded directly
-      const uploadId = diskStorage.generateUploadId();
+      // File was uploaded directly - preserve original filename/extension
+      const originalName = req.file.originalname || '';
+      const ext = originalName.includes('.') ? originalName.substring(originalName.lastIndexOf('.')) : '';
+      const uploadId = diskStorage.generateUploadId(ext || undefined);
       const objectPath = await diskStorage.saveFile(uploadId, req.file.buffer, req.file.mimetype);
       
       const publicUrl = `${baseUrl}${objectPath}`;
