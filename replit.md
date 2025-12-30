@@ -3,7 +3,26 @@
 ## Overview
 VideoForge is an AI video generation platform leveraging Alibaba Cloud's Wan API via DashScope to create videos. It supports 13 Wan models across six generation categories (text-to-video, image-to-video, text-to-image, image-to-image, animation, keyframe-to-video), offering features like negative prompts, custom audio, and optimized resolutions. The platform provides a modern workspace for managing video generation projects, tracking real-time progress, organizing content, and creating storyboards with preview images before video generation, aiming to simplify AI-driven video creation for users.
 
-## Recent Changes (December 6, 2025)
+## Recent Changes (December 30, 2025)
+
+**New Storyboard Table System**
+1. **Tabular Interface**: Replaced card-based storyboard builder with table-based layout for better organization
+2. **File Import**: Support JSON and CSV file import for batch scene creation
+   - JSON: `[{ "prompt": "scene 1" }, { "prompt": "scene 2" }]` or nested with `items`/`scenes` arrays
+   - CSV: `prompt,model` headers with one scene per row
+3. **Reference Modes**: Three image reference strategies for I2I generation:
+   - **Global**: Use same starting image for all scenes
+   - **Chain**: Each scene uses previous scene's output (sequential narrative)
+   - **Custom**: Upload unique reference per row
+4. **Global Style Prompts**: Style prefix applied to all scene prompts
+5. **Auto-Save**: 1-second debounced auto-save for storyboard config and items
+6. **New Database Schema**:
+   - `storyboards`: Added `globalStyle`, `globalImageUrl`, `referenceMode` columns
+   - `storyboard_items`: New table replacing `storyboard_images` with `prompt`, `model`, `referenceImageUrl`, `generatedImageUrl`, `status`, `taskId`, `order`
+7. **Generation Workflow**: Per-item generation with status polling (3-second intervals)
+8. **Component**: `StoryboardTableBuilder` in `client/src/components/storyboard-table-builder.tsx`
+
+## Changes (December 6, 2025)
 
 **Audio File Upload with Auto Public URL**
 1. **Restored Audio File Upload**: Changed back from URL input to file upload
@@ -98,8 +117,8 @@ Preferred communication style: Simple, everyday language.
 - **Data Models**: 
   - `projects` (id, name, globalPrompt, imageUrl, defaultModel, createdAt)
   - `videos` (id, projectId, name, prompt, model, generationType, resolution, status, progress, videoUrl, thumbnailUrl, sourceImageUrl, duration, errorMessage, createdAt, firstKeyframeUrl, lastKeyframeUrl, audioMode, audioUrl, audioFilename)
-  - `storyboards` (id, projectId, name, generationType, createdAt)
-  - `storyboard_images` (id, storyboardId, prompt, sourceImages, generatedImageUrl, order, createdAt)
+  - `storyboards` (id, projectId, name, generationType, globalStyle, globalImageUrl, referenceMode, createdAt)
+  - `storyboard_items` (id, storyboardId, prompt, model, referenceImageUrl, generatedImageUrl, status, taskId, order, createdAt)
 - **Persistence**: Uses `DbStorage` with PostgreSQL, `MemStorage` for development/testing.
 
 ### UI/UX Decisions

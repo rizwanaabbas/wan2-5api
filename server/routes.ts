@@ -1299,6 +1299,215 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update storyboard (auto-save global settings)
+  app.patch("/api/storyboards/:id", async (req, res) => {
+    try {
+      const { name, globalStyle, globalImageUrl, referenceMode } = req.body;
+      const storyboard = await storage.updateStoryboard(req.params.id, {
+        name,
+        globalStyle,
+        globalImageUrl,
+        referenceMode,
+      });
+      if (!storyboard) {
+        return res.status(404).json({ error: "Storyboard not found" });
+      }
+      res.json(storyboard);
+    } catch (error) {
+      console.error("Update storyboard error:", error);
+      res.status(500).json({ error: "Failed to update storyboard" });
+    }
+  });
+
+  // Storyboard Items CRUD
+  app.get("/api/storyboards/:id/items", async (req, res) => {
+    try {
+      const items = await storage.getStoryboardItems(req.params.id);
+      res.json(items);
+    } catch (error) {
+      console.error("Get storyboard items error:", error);
+      res.status(500).json({ error: "Failed to fetch storyboard items" });
+    }
+  });
+
+  app.post("/api/storyboards/:id/items", async (req, res) => {
+    try {
+      const { prompt, model, referenceImageUrl, order } = req.body;
+      
+      if (!prompt) {
+        return res.status(400).json({ error: "Prompt is required" });
+      }
+
+      const item = await storage.createStoryboardItem({
+        storyboardId: req.params.id,
+        prompt,
+        model: model || "wan2.6-image",
+        referenceImageUrl: referenceImageUrl || null,
+        order: order ?? 0,
+      });
+
+      res.json({ success: true, item });
+    } catch (error) {
+      console.error("Create storyboard item error:", error);
+      res.status(500).json({ error: "Failed to create storyboard item" });
+    }
+  });
+
+  // Batch create storyboard items (for import)
+  app.post("/api/storyboards/:id/items/batch", async (req, res) => {
+    try {
+      const { items } = req.body;
+      
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: "Items array is required" });
+      }
+
+      const createdItems = [];
+      for (let i = 0; i < items.length; i++) {
+        const { prompt, model, referenceImageUrl } = items[i];
+        if (!prompt) continue;
+        
+        const item = await storage.createStoryboardItem({
+          storyboardId: req.params.id,
+          prompt,
+          model: model || "wan2.6-image",
+          referenceImageUrl: referenceImageUrl || null,
+          order: i,
+        });
+        createdItems.push(item);
+      }
+
+      res.json({ success: true, items: createdItems });
+    } catch (error) {
+      console.error("Batch create storyboard items error:", error);
+      res.status(500).json({ error: "Failed to create storyboard items" });
+    }
+  });
+
+  app.patch("/api/storyboard-items/:id", async (req, res) => {
+    try {
+      const { prompt, model, referenceImageUrl, order } = req.body;
+      const item = await storage.updateStoryboardItem(req.params.id, {
+        prompt,
+        model,
+        referenceImageUrl,
+        order,
+      });
+      if (!item) {
+        return res.status(404).json({ error: "Storyboard item not found" });
+      }
+      res.json(item);
+    } catch (error) {
+      console.error("Update storyboard item error:", error);
+      res.status(500).json({ error: "Failed to update storyboard item" });
+    }
+  });
+
+  app.delete("/api/storyboard-items/:id", async (req, res) => {
+    try {
+      const success = await storage.deleteStoryboardItem(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: "Storyboard item not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete storyboard item error:", error);
+      res.status(500).json({ error: "Failed to delete storyboard item" });
+    }
+  });
+
+  // Delete all items in a storyboard (for re-import)
+  app.delete("/api/storyboards/:id/items", async (req, res) => {
+    try {
+      await storage.deleteStoryboardItemsByStoryboard(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete storyboard items error:", error);
+      res.status(500).json({ error: "Failed to delete storyboard items" });
+    }
+  });
+
+  // Generate image for storyboard item
+  app.post("/api/storyboard-items/:id/generate", async (req, res) => {
+    try {
+      const item = await storage.getStoryboardItem(req.params.id);
+      if (!item) {
+        return res.status(404).json({ error: "Storyboard item not found" });
+      }
+
+      const storyboard = await storage.getStoryboard(item.storyboardId);
+      if (!storyboard) {
+        return res.status(404).json({ error: "Storyboard not found" });
+      }
+
+      // Determine reference image based on mode
+      const { referenceImageUrl: overrideRef, size, negativePrompt, promptExtend } = req.body;
+      let referenceImage = overrideRef || item.referenceImageUrl;
+
+      // Build prompt with global style
+      let fullPrompt = item.prompt;
+      if (storyboard.globalStyle) {
+        fullPrompt = `${storyboard.globalStyle}. ${item.prompt}`;
+      }
+
+      // Mark as generating
+      await storage.updateStoryboardItem(item.id, { status: "generating" });
+
+      // Start wan2.6-image generation
+      const taskId = await startWan26ImageTask({
+        prompt: fullPrompt,
+        imageUrls: referenceImage ? [referenceImage] : [],
+        negativePrompt: negativePrompt || undefined,
+        promptExtend: promptExtend !== false,
+        size: size || "1024*1024",
+        n: 1,
+      });
+
+      // Update with task ID
+      await storage.updateStoryboardItem(item.id, { taskId });
+
+      res.json({ success: true, taskId });
+    } catch (error) {
+      console.error("Generate storyboard item error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to generate image" });
+    }
+  });
+
+  // Check storyboard item generation status
+  app.get("/api/storyboard-items/:id/status", async (req, res) => {
+    try {
+      const item = await storage.getStoryboardItem(req.params.id);
+      if (!item) {
+        return res.status(404).json({ error: "Storyboard item not found" });
+      }
+
+      if (!item.taskId) {
+        return res.json({ status: item.status, generatedImageUrl: item.generatedImageUrl });
+      }
+
+      // Check task status
+      const result = await checkWan26ImageTaskStatus(item.taskId);
+
+      if (result.status === "completed" && result.imageUrls && result.imageUrls.length > 0) {
+        // Download and save the first image
+        const savedUrl = await downloadAndSaveImage(result.imageUrls[0]);
+        await storage.updateStoryboardItem(item.id, {
+          status: "completed",
+          generatedImageUrl: savedUrl,
+        });
+        return res.json({ status: "completed", generatedImageUrl: savedUrl });
+      } else if (result.status === "failed") {
+        await storage.updateStoryboardItem(item.id, { status: "failed" });
+        return res.json({ status: "failed", error: result.error });
+      }
+
+      res.json({ status: result.status, progress: result.progress });
+    } catch (error) {
+      console.error("Check storyboard item status error:", error);
+      res.status(500).json({ error: "Failed to check status" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

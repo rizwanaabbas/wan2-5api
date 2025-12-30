@@ -50,9 +50,26 @@ export const storyboards = pgTable("storyboards", {
   projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: 'cascade' }),
   name: text("name").notNull(),
   generationType: text("generation_type").notNull(), // "t2i" or "i2i"
+  globalStyle: text("global_style"), // Global style prompt applied to all items
+  globalImageUrl: text("global_image_url"), // Starting reference image
+  referenceMode: text("reference_mode").default("global"), // "global", "chain", "custom"
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const storyboardItems = pgTable("storyboard_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storyboardId: varchar("storyboard_id").notNull().references(() => storyboards.id, { onDelete: 'cascade' }),
+  prompt: text("prompt").notNull(),
+  model: text("model").default("wan2.6-image"), // Model for generation
+  referenceImageUrl: text("reference_image_url"), // Custom reference image (for custom mode)
+  generatedImageUrl: text("generated_image_url"), // Generated image URL (nullable until generated)
+  status: text("status").default("pending"), // "pending", "generating", "completed", "failed"
+  taskId: varchar("task_id"), // API task ID for tracking
+  order: integer("order").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Keep old table for backward compatibility but mark as deprecated
 export const storyboardImages = pgTable("storyboard_images", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storyboardId: varchar("storyboard_id").notNull().references(() => storyboards.id, { onDelete: 'cascade' }),
@@ -99,6 +116,15 @@ export const insertStoryboardSchema = createInsertSchema(storyboards).omit({
   createdAt: true,
 });
 
+export const insertStoryboardItemSchema = createInsertSchema(storyboardItems).omit({
+  id: true,
+  createdAt: true,
+  status: true,
+  taskId: true,
+  generatedImageUrl: true,
+});
+
+// Deprecated - use insertStoryboardItemSchema instead
 export const insertStoryboardImageSchema = createInsertSchema(storyboardImages).omit({
   id: true,
   createdAt: true,
@@ -115,8 +141,12 @@ export type InsertVideo = z.infer<typeof insertVideoSchema>;
 export type Video = typeof videos.$inferSelect;
 export type Storyboard = typeof storyboards.$inferSelect;
 export type InsertStoryboard = z.infer<typeof insertStoryboardSchema>;
+export type StoryboardItem = typeof storyboardItems.$inferSelect;
+export type InsertStoryboardItem = z.infer<typeof insertStoryboardItemSchema>;
 export type StoryboardImage = typeof storyboardImages.$inferSelect;
 export type InsertStoryboardImage = z.infer<typeof insertStoryboardImageSchema>;
+export type ReferenceMode = "global" | "chain" | "custom";
+export type StoryboardItemStatus = "pending" | "generating" | "completed" | "failed";
 export type SavedFile = typeof savedFiles.$inferSelect;
 export type InsertSavedFile = z.infer<typeof insertSavedFileSchema>;
 
