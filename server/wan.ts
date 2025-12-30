@@ -687,7 +687,7 @@ export async function startTextToImageTask(
         "X-DashScope-Async": "enable",
       },
       body: JSON.stringify({
-        model: "wan2.6-i2v",
+        model: "wan2.5-t2i-preview",
         input: {
           prompt,
         },

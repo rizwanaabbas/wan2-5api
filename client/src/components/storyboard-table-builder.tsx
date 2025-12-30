@@ -317,7 +317,8 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
       }
       
       const data = await res.json();
-      const imageUrl = data.publicUrl || data.objectPath || data.url || data.path;
+      // Prefer objectPath (relative) over publicUrl (absolute) for better dev/prod compatibility
+      const imageUrl = data.objectPath || data.publicUrl || data.url || data.path;
       console.log("Image uploaded successfully:", imageUrl);
       if (!imageUrl) {
         throw new Error("No image URL returned from server");
