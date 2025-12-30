@@ -56,6 +56,8 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
   const [isChainGenerating, setIsChainGenerating] = useState(false);
   const [chainProgress, setChainProgress] = useState({ current: 0, total: 0 });
   const [isGeneratingGlobal, setIsGeneratingGlobal] = useState(false);
+  const [globalGenerationProgress, setGlobalGenerationProgress] = useState(0);
+  const [generatedGlobalImageUrl, setGeneratedGlobalImageUrl] = useState("");
   const cancelChainRef = useRef(false);
   
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -324,6 +326,8 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
         throw new Error("No image URL returned from server");
       }
       setGlobalImageUrl(imageUrl);
+      // Clear any previously generated image when uploading a new reference
+      setGeneratedGlobalImageUrl("");
       toast({ title: "Image uploaded" });
     } catch (error) {
       console.error("Upload error:", error);
@@ -337,22 +341,25 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
   };
 
   const getReferenceImageForItem = (item: StoryboardItem, index: number, chainOutputs?: Map<number, string>): string | undefined => {
+    // Prefer generated global image over uploaded reference for scene generation
+    const startingImage = generatedGlobalImageUrl || globalImageUrl;
+    
     if (referenceMode === "custom") {
       return item.referenceImageUrl || undefined;
     }
     if (referenceMode === "global") {
-      return globalImageUrl || undefined;
+      return startingImage || undefined;
     }
     if (referenceMode === "chain") {
       if (index === 0) {
-        return globalImageUrl || undefined;
+        return startingImage || undefined;
       }
       // During chained generation, use the chainOutputs map for accurate reference
       if (chainOutputs && chainOutputs.has(index - 1)) {
         return chainOutputs.get(index - 1);
       }
       const prevItem = items[index - 1];
-      return prevItem?.generatedImageUrl || globalImageUrl || undefined;
+      return prevItem?.generatedImageUrl || startingImage || undefined;
     }
     return undefined;
   };
@@ -391,7 +398,7 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
     return null;
   };
 
-  // Generate the global/starting image using T2I
+  // Generate the global/starting image using I2I (if reference exists) or T2I
   const handleGenerateGlobalImage = async () => {
     if (!globalStyle.trim()) {
       toast({ title: "Please enter a global style prompt first", variant: "destructive" });
@@ -399,28 +406,50 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
     }
     
     setIsGeneratingGlobal(true);
+    setGlobalGenerationProgress(0);
+    
     try {
-      // Use the task-based T2I endpoint for progress tracking
-      const res = await apiRequest("POST", "/api/generate/text-to-image/start", {
-        prompt: globalStyle,
-        size: resolution,
-      });
+      let endpoint: string;
+      let payload: Record<string, unknown>;
       
+      // If we have any reference image (generated or uploaded), use I2I workflow
+      const referenceImage = generatedGlobalImageUrl || globalImageUrl;
+      if (referenceImage) {
+        endpoint = "/api/generate/image-to-image/start";
+        payload = {
+          prompt: globalStyle,
+          imageUrls: [referenceImage],
+          size: resolution,
+        };
+      } else {
+        // Otherwise use T2I
+        endpoint = "/api/generate/text-to-image/start";
+        payload = {
+          prompt: globalStyle,
+          size: resolution,
+        };
+      }
+      
+      const res = await apiRequest("POST", endpoint, payload);
       const data = await res.json();
       
       if (!data.taskId) {
         throw new Error("No task ID returned");
       }
       
-      // Poll for completion
+      // Poll for completion with progress tracking
       for (let attempt = 0; attempt < 120; attempt++) {
         await new Promise(resolve => setTimeout(resolve, 3000));
+        // Update progress estimate (not accurate but gives visual feedback)
+        setGlobalGenerationProgress(Math.min(95, Math.floor((attempt / 40) * 100)));
+        
         try {
           const statusRes = await fetch(`/api/generate/task/${data.taskId}`);
           const statusData = await statusRes.json();
           
           if (statusData.status === "completed" && statusData.imageUrl) {
-            setGlobalImageUrl(statusData.imageUrl);
+            setGlobalGenerationProgress(100);
+            setGeneratedGlobalImageUrl(statusData.imageUrl);
             toast({ title: "Global image generated" });
             return;
           } else if (statusData.status === "failed") {
@@ -437,6 +466,7 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
       toast({ title: "Generation failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
     } finally {
       setIsGeneratingGlobal(false);
+      setGlobalGenerationProgress(0);
     }
   };
 
@@ -455,8 +485,9 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
       return;
     }
     
-    // For chain mode, we need a global image to start
-    if (referenceMode === "chain" && !globalImageUrl) {
+    // For chain mode, we need a starting image
+    const startingImage = generatedGlobalImageUrl || globalImageUrl;
+    if (referenceMode === "chain" && !startingImage) {
       toast({ title: "Please upload or generate a starting image first", variant: "destructive" });
       return;
     }
@@ -488,7 +519,7 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
         let refImage: string | undefined;
         if (referenceMode === "chain") {
           if (i === 0) {
-            refImage = globalImageUrl || undefined;
+            refImage = startingImage || undefined;
           } else {
             refImage = chainOutputs.get(i - 1) || undefined;
           }
@@ -643,51 +674,94 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
           </div>
           
           <div className="space-y-2">
-            <Label className="text-sm font-medium">Starting Reference Image</Label>
-            <div className="flex items-start gap-2">
-              {globalImageUrl ? (
-                <div className="relative">
-                  <img 
-                    src={globalImageUrl} 
-                    alt="Global reference" 
-                    className="w-20 h-20 object-cover rounded border"
-                    onError={(e) => {
-                      console.error("Image failed to load:", globalImageUrl);
-                      (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect fill='%23f0f0f0' width='80' height='80'/%3E%3Ctext x='40' y='45' text-anchor='middle' fill='%23999' font-size='10'%3EError%3C/text%3E%3C/svg%3E";
-                    }}
-                  />
-                  <Button 
-                    variant="destructive" 
-                    size="icon" 
-                    className="absolute -top-2 -right-2 h-5 w-5"
-                    onClick={() => setGlobalImageUrl("")}
-                    disabled={isGeneratingGlobal || isChainGenerating}
-                    data-testid="button-clear-global-image"
-                  >
-                    <X className="w-3 h-3" />
-                  </Button>
-                </div>
-              ) : isGeneratingGlobal ? (
-                <div className="flex flex-col items-center justify-center w-20 h-20 border-2 border-dashed rounded bg-muted/50">
-                  <Loader2 className="w-6 h-6 animate-spin" />
-                </div>
-              ) : (
-                <label className="flex flex-col items-center justify-center w-20 h-20 border-2 border-dashed rounded cursor-pointer hover:bg-muted/50">
-                  <input
-                    ref={imageInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleUploadGlobalImage}
-                    data-testid="input-global-image"
-                  />
-                  {isUploading ? (
-                    <Loader2 className="w-6 h-6 animate-spin" />
-                  ) : (
-                    <Upload className="w-6 h-6 text-muted-foreground" />
-                  )}
-                </label>
-              )}
+            <Label className="text-sm font-medium">Reference Image</Label>
+            <div className="flex items-start gap-3">
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-xs text-muted-foreground">Upload</span>
+                {globalImageUrl ? (
+                  <div className="relative">
+                    <img 
+                      src={globalImageUrl} 
+                      alt="Uploaded reference" 
+                      className="w-16 h-16 object-cover rounded border"
+                      onError={(e) => {
+                        console.error("Image failed to load:", globalImageUrl);
+                        (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect fill='%23f0f0f0' width='64' height='64'/%3E%3Ctext x='32' y='36' text-anchor='middle' fill='%23999' font-size='8'%3EError%3C/text%3E%3C/svg%3E";
+                      }}
+                    />
+                    <Button 
+                      variant="destructive" 
+                      size="icon" 
+                      className="absolute -top-2 -right-2 h-4 w-4"
+                      onClick={() => setGlobalImageUrl("")}
+                      disabled={isGeneratingGlobal || isChainGenerating}
+                      data-testid="button-clear-global-image"
+                    >
+                      <X className="w-2 h-2" />
+                    </Button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-16 h-16 border-2 border-dashed rounded cursor-pointer hover:bg-muted/50">
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleUploadGlobalImage}
+                      data-testid="input-global-image"
+                    />
+                    {isUploading ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Upload className="w-5 h-5 text-muted-foreground" />
+                    )}
+                  </label>
+                )}
+              </div>
+              
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-xs text-muted-foreground">Generated</span>
+                {isGeneratingGlobal ? (
+                  <div className="flex flex-col items-center justify-center w-16 h-16 border-2 border-dashed rounded bg-muted/50">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span className="text-xs mt-1">{globalGenerationProgress}%</span>
+                  </div>
+                ) : generatedGlobalImageUrl ? (
+                  <div className="relative group">
+                    <img 
+                      src={generatedGlobalImageUrl} 
+                      alt="Generated" 
+                      className="w-16 h-16 object-cover rounded border cursor-pointer"
+                      onClick={() => window.open(generatedGlobalImageUrl, "_blank")}
+                      onError={(e) => {
+                        console.error("Generated image failed to load:", generatedGlobalImageUrl);
+                        (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect fill='%23f0f0f0' width='64' height='64'/%3E%3Ctext x='32' y='36' text-anchor='middle' fill='%23999' font-size='8'%3EError%3C/text%3E%3C/svg%3E";
+                      }}
+                    />
+                    <Button 
+                      variant="secondary" 
+                      size="icon" 
+                      className="absolute -bottom-2 -right-2 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const link = document.createElement("a");
+                        link.href = generatedGlobalImageUrl;
+                        link.download = "generated-global.png";
+                        link.click();
+                      }}
+                      title="Download"
+                      data-testid="button-download-generated-global"
+                    >
+                      <Download className="w-3 h-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="w-16 h-16 flex items-center justify-center border-2 border-dashed rounded text-muted-foreground">
+                    <ImageIcon className="w-5 h-5" />
+                  </div>
+                )}
+              </div>
+              
               <div className="flex-1 space-y-2">
                 <Select value={resolution} onValueChange={setResolution}>
                   <SelectTrigger className="w-full" data-testid="select-resolution">
@@ -710,12 +784,12 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
                   {isGeneratingGlobal ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Generating...
+                      {globalGenerationProgress}%
                     </>
                   ) : (
                     <>
                       <RefreshCw className="w-4 h-4 mr-2" />
-                      {globalImageUrl ? "Regenerate" : "Generate from Prompt"}
+                      {globalImageUrl ? "Generate with Style" : "Generate from Prompt"}
                     </>
                   )}
                 </Button>
@@ -846,6 +920,9 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
                                 src={item.referenceImageUrl} 
                                 alt="Reference" 
                                 className="w-full h-full object-cover rounded border"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect fill='%23f0f0f0' width='64' height='64'/%3E%3Ctext x='32' y='36' text-anchor='middle' fill='%23999' font-size='8'%3EError%3C/text%3E%3C/svg%3E";
+                                }}
                               />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center border-2 border-dashed rounded text-muted-foreground">
@@ -860,6 +937,9 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
                                 src={getReferenceImageForItem(item, index)} 
                                 alt="Reference" 
                                 className="w-full h-full object-cover rounded border"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect fill='%23f0f0f0' width='64' height='64'/%3E%3Ctext x='32' y='36' text-anchor='middle' fill='%23999' font-size='8'%3EError%3C/text%3E%3C/svg%3E";
+                                }}
                               />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center border-2 border-dashed rounded text-muted-foreground">
@@ -872,8 +952,9 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
                       <TableCell>
                         <div className="w-16 h-16">
                           {item.status === "generating" ? (
-                            <div className="w-full h-full flex items-center justify-center border rounded bg-muted">
+                            <div className="w-full h-full flex flex-col items-center justify-center border rounded bg-muted">
                               <Loader2 className="w-4 h-4 animate-spin" />
+                              <span className="text-xs text-muted-foreground mt-1">...</span>
                             </div>
                           ) : item.generatedImageUrl ? (
                             <img 
@@ -881,6 +962,10 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
                               alt="Generated" 
                               className="w-full h-full object-cover rounded border cursor-pointer hover:opacity-80"
                               onClick={() => window.open(item.generatedImageUrl!, "_blank")}
+                              onError={(e) => {
+                                console.error("Scene image failed to load:", item.generatedImageUrl);
+                                (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect fill='%23f0f0f0' width='64' height='64'/%3E%3Ctext x='32' y='36' text-anchor='middle' fill='%23999' font-size='8'%3EError%3C/text%3E%3C/svg%3E";
+                              }}
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center border-2 border-dashed rounded text-muted-foreground">
