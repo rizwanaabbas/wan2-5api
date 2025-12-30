@@ -53,6 +53,10 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [pollingItems, setPollingItems] = useState<Set<string>>(new Set());
+  const [isChainGenerating, setIsChainGenerating] = useState(false);
+  const [chainProgress, setChainProgress] = useState({ current: 0, total: 0 });
+  const [isGeneratingGlobal, setIsGeneratingGlobal] = useState(false);
+  const cancelChainRef = useRef(false);
   
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -327,7 +331,7 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
     }
   };
 
-  const getReferenceImageForItem = (item: StoryboardItem, index: number): string | undefined => {
+  const getReferenceImageForItem = (item: StoryboardItem, index: number, chainOutputs?: Map<number, string>): string | undefined => {
     if (referenceMode === "custom") {
       return item.referenceImageUrl || undefined;
     }
@@ -338,32 +342,194 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
       if (index === 0) {
         return globalImageUrl || undefined;
       }
+      // During chained generation, use the chainOutputs map for accurate reference
+      if (chainOutputs && chainOutputs.has(index - 1)) {
+        return chainOutputs.get(index - 1);
+      }
       const prevItem = items[index - 1];
       return prevItem?.generatedImageUrl || globalImageUrl || undefined;
     }
     return undefined;
   };
 
+  // Poll for item completion and return the generated image URL
+  const pollForCompletion = async (itemId: string): Promise<string | null> => {
+    const maxAttempts = 120; // 6 minutes max (120 * 3 seconds)
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (cancelChainRef.current) {
+        return null;
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      try {
+        const res = await fetch(`/api/storyboard-items/${itemId}/status`);
+        const data = await res.json();
+        
+        if (data.status === "completed") {
+          setItems(prev => prev.map(item => 
+            item.id === itemId ? { ...item, status: "completed", generatedImageUrl: data.generatedImageUrl } : item
+          ));
+          return data.generatedImageUrl;
+        } else if (data.status === "failed") {
+          setItems(prev => prev.map(item => 
+            item.id === itemId ? { ...item, status: "failed" } : item
+          ));
+          toast({ title: "Generation failed", description: data.error, variant: "destructive" });
+          return null;
+        }
+      } catch (error) {
+        console.error("Polling error:", error);
+      }
+    }
+    toast({ title: "Generation timeout", description: "The image took too long to generate", variant: "destructive" });
+    return null;
+  };
+
+  // Generate the global/starting image using T2I
+  const handleGenerateGlobalImage = async () => {
+    if (!globalStyle.trim()) {
+      toast({ title: "Please enter a global style prompt first", variant: "destructive" });
+      return;
+    }
+    
+    setIsGeneratingGlobal(true);
+    try {
+      // Use the task-based T2I endpoint for progress tracking
+      const res = await apiRequest("POST", "/api/generate/text-to-image/start", {
+        prompt: globalStyle,
+        size: resolution,
+      });
+      
+      const data = await res.json();
+      
+      if (!data.taskId) {
+        throw new Error("No task ID returned");
+      }
+      
+      // Poll for completion
+      for (let attempt = 0; attempt < 120; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        try {
+          const statusRes = await fetch(`/api/generate/task/${data.taskId}`);
+          const statusData = await statusRes.json();
+          
+          if (statusData.status === "completed" && statusData.imageUrl) {
+            setGlobalImageUrl(statusData.imageUrl);
+            toast({ title: "Global image generated" });
+            return;
+          } else if (statusData.status === "failed") {
+            toast({ title: "Generation failed", description: statusData.error, variant: "destructive" });
+            return;
+          }
+        } catch (e) {
+          console.error("Poll error:", e);
+        }
+      }
+      toast({ title: "Generation timeout", variant: "destructive" });
+    } catch (error) {
+      console.error("Generate global error:", error);
+      toast({ title: "Generation failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setIsGeneratingGlobal(false);
+    }
+  };
+
   const handleGenerate = (item: StoryboardItem, index: number) => {
     const refImage = getReferenceImageForItem(item, index);
     if (!refImage && referenceMode !== "custom") {
-      toast({ title: "No reference image available", description: "Please upload a global image first", variant: "destructive" });
+      toast({ title: "No reference image available", description: "Please upload or generate a starting image first", variant: "destructive" });
       return;
     }
     generateItemMutation.mutate({ itemId: item.id, referenceImageUrl: refImage });
   };
 
   const handleGenerateAll = async () => {
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (!item.generatedImageUrl && item.status !== "generating") {
-        const refImage = getReferenceImageForItem(item, i);
-        if (refImage || referenceMode === "custom") {
-          generateItemMutation.mutate({ itemId: item.id, referenceImageUrl: refImage });
-          await new Promise(resolve => setTimeout(resolve, 500));
+    if (items.length === 0) {
+      toast({ title: "No scenes to generate", variant: "destructive" });
+      return;
+    }
+    
+    // For chain mode, we need a global image to start
+    if (referenceMode === "chain" && !globalImageUrl) {
+      toast({ title: "Please upload or generate a starting image first", variant: "destructive" });
+      return;
+    }
+    
+    setIsChainGenerating(true);
+    setChainProgress({ current: 0, total: items.length });
+    cancelChainRef.current = false;
+    
+    // Map to store generated outputs for chaining
+    const chainOutputs = new Map<number, string>();
+    
+    try {
+      for (let i = 0; i < items.length; i++) {
+        if (cancelChainRef.current) {
+          toast({ title: "Generation cancelled" });
+          break;
+        }
+        
+        const item = items[i];
+        setChainProgress({ current: i + 1, total: items.length });
+        
+        // Skip already completed items unless in chain mode (need proper sequence)
+        if (item.generatedImageUrl && item.status === "completed" && referenceMode !== "chain") {
+          chainOutputs.set(i, item.generatedImageUrl);
+          continue;
+        }
+        
+        // Get reference image - for chain mode, use the previous output
+        let refImage: string | undefined;
+        if (referenceMode === "chain") {
+          if (i === 0) {
+            refImage = globalImageUrl || undefined;
+          } else {
+            refImage = chainOutputs.get(i - 1) || undefined;
+          }
+        } else {
+          refImage = getReferenceImageForItem(item, i);
+        }
+        
+        if (!refImage && referenceMode !== "custom") {
+          toast({ title: `Scene ${i + 1}: No reference image available`, variant: "destructive" });
+          continue;
+        }
+        
+        // Start generation
+        setItems(prev => prev.map(it => it.id === item.id ? { ...it, status: "generating" } : it));
+        
+        try {
+          const res = await apiRequest("POST", `/api/storyboard-items/${item.id}/generate`, {
+            referenceImageUrl: refImage,
+            size: resolution,
+            promptExtend: true,
+          });
+          await res.json();
+          
+          // Wait for completion
+          const outputUrl = await pollForCompletion(item.id);
+          
+          if (outputUrl) {
+            chainOutputs.set(i, outputUrl);
+            toast({ title: `Scene ${i + 1} completed` });
+          } else if (cancelChainRef.current) {
+            break;
+          }
+        } catch (error) {
+          console.error(`Error generating scene ${i + 1}:`, error);
+          toast({ title: `Scene ${i + 1} failed`, variant: "destructive" });
         }
       }
+    } finally {
+      setIsChainGenerating(false);
+      setChainProgress({ current: 0, total: 0 });
     }
+  };
+
+  const handleCancelChain = () => {
+    cancelChainRef.current = true;
+    toast({ title: "Cancelling generation..." });
   };
 
   const handleAddRow = () => {
@@ -486,9 +652,14 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
                     size="icon" 
                     className="absolute -top-2 -right-2 h-5 w-5"
                     onClick={() => setGlobalImageUrl("")}
+                    disabled={isGeneratingGlobal || isChainGenerating}
                   >
                     <X className="w-3 h-3" />
                   </Button>
+                </div>
+              ) : isGeneratingGlobal ? (
+                <div className="flex flex-col items-center justify-center w-20 h-20 border-2 border-dashed rounded bg-muted/50">
+                  <Loader2 className="w-6 h-6 animate-spin" />
                 </div>
               ) : (
                 <label className="flex flex-col items-center justify-center w-20 h-20 border-2 border-dashed rounded cursor-pointer hover:bg-muted/50">
@@ -518,6 +689,28 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
                     ))}
                   </SelectContent>
                 </Select>
+                {!globalImageUrl && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full"
+                    onClick={handleGenerateGlobalImage}
+                    disabled={isGeneratingGlobal || !globalStyle.trim()}
+                    data-testid="button-generate-global"
+                  >
+                    {isGeneratingGlobal ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Generate from Prompt
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -571,16 +764,30 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
           ) : (
             <>
               <div className="flex justify-between items-center mb-4">
-                <h3 className="font-semibold">{items.length} Scenes</h3>
+                <div className="flex items-center gap-4">
+                  <h3 className="font-semibold">{items.length} Scenes</h3>
+                  {isChainGenerating && (
+                    <Badge variant="secondary" className="animate-pulse">
+                      Generating {chainProgress.current}/{chainProgress.total}
+                    </Badge>
+                  )}
+                </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={handleAddRow} data-testid="button-add-row">
+                  <Button variant="outline" size="sm" onClick={handleAddRow} disabled={isChainGenerating} data-testid="button-add-row">
                     <Plus className="w-4 h-4 mr-2" />
                     Add Row
                   </Button>
-                  <Button size="sm" onClick={handleGenerateAll} data-testid="button-generate-all">
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    Generate All
-                  </Button>
+                  {isChainGenerating ? (
+                    <Button variant="destructive" size="sm" onClick={handleCancelChain} data-testid="button-cancel-generate">
+                      <X className="w-4 h-4 mr-2" />
+                      Stop
+                    </Button>
+                  ) : (
+                    <Button size="sm" onClick={handleGenerateAll} disabled={isGeneratingGlobal} data-testid="button-generate-all">
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Generate All
+                    </Button>
+                  )}
                 </div>
               </div>
               
