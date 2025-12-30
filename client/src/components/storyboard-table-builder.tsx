@@ -185,8 +185,9 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
     },
   });
 
+  // Background polling for individual item generation (disabled during chain generation)
   useEffect(() => {
-    if (pollingItems.size === 0) return;
+    if (pollingItems.size === 0 || isChainGenerating) return;
     
     const pollInterval = setInterval(async () => {
       for (const itemId of Array.from(pollingItems)) {
@@ -220,7 +221,7 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
     }, 3000);
 
     return () => clearInterval(pollInterval);
-  }, [pollingItems, toast]);
+  }, [pollingItems, toast, isChainGenerating]);
 
   const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -316,8 +317,11 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
       }
       
       const data = await res.json();
-      const imageUrl = data.url || data.path;
+      const imageUrl = data.publicUrl || data.objectPath || data.url || data.path;
       console.log("Image uploaded successfully:", imageUrl);
+      if (!imageUrl) {
+        throw new Error("No image URL returned from server");
+      }
       setGlobalImageUrl(imageUrl);
       toast({ title: "Image uploaded" });
     } catch (error) {
