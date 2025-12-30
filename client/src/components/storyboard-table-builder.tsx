@@ -300,17 +300,24 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
       const formData = new FormData();
       formData.append("file", file);
       
-      const res = await fetch("/objects/upload", {
+      const res = await fetch("/api/objects/upload", {
         method: "POST",
         body: formData,
       });
       
-      if (!res.ok) throw new Error("Upload failed");
+      if (!res.ok) {
+        const errorData = await res.text();
+        console.error("Upload failed:", errorData);
+        throw new Error("Upload failed");
+      }
       
       const data = await res.json();
-      setGlobalImageUrl(data.url || data.path);
+      const imageUrl = data.url || data.path;
+      console.log("Image uploaded successfully:", imageUrl);
+      setGlobalImageUrl(imageUrl);
       toast({ title: "Image uploaded" });
     } catch (error) {
+      console.error("Upload error:", error);
       toast({ title: "Upload failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
     } finally {
       setIsUploading(false);
@@ -382,6 +389,25 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
     link.href = url;
     link.download = `scene-${index + 1}.png`;
     link.click();
+  };
+
+  const handleDownloadSample = () => {
+    const sampleData = [
+      { prompt: "A serene mountain landscape at sunrise with golden light" },
+      { prompt: "A bustling city street at night with neon lights reflecting on wet pavement" },
+      { prompt: "A cozy coffee shop interior with warm lighting and vintage decor" },
+      { prompt: "An underwater scene with colorful coral reef and tropical fish" },
+      { prompt: "A futuristic space station orbiting Earth with stars in the background" }
+    ];
+    
+    const blob = new Blob([JSON.stringify(sampleData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "storyboard-sample.json";
+    link.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "Sample file downloaded" });
   };
 
   if (isLoading) {
@@ -736,7 +762,11 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
               </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-row justify-between sm:justify-between gap-2">
+            <Button variant="outline" onClick={handleDownloadSample} data-testid="button-download-sample">
+              <Download className="w-4 h-4 mr-2" />
+              Download Sample
+            </Button>
             <Button variant="outline" onClick={() => setShowImportDialog(false)}>Cancel</Button>
           </DialogFooter>
         </DialogContent>
