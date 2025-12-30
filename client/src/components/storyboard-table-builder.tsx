@@ -650,6 +650,10 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
                     src={globalImageUrl} 
                     alt="Global reference" 
                     className="w-20 h-20 object-cover rounded border"
+                    onError={(e) => {
+                      console.error("Image failed to load:", globalImageUrl);
+                      (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect fill='%23f0f0f0' width='80' height='80'/%3E%3Ctext x='40' y='45' text-anchor='middle' fill='%23999' font-size='10'%3EError%3C/text%3E%3C/svg%3E";
+                    }}
                   />
                   <Button 
                     variant="destructive" 
@@ -657,6 +661,7 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
                     className="absolute -top-2 -right-2 h-5 w-5"
                     onClick={() => setGlobalImageUrl("")}
                     disabled={isGeneratingGlobal || isChainGenerating}
+                    data-testid="button-clear-global-image"
                   >
                     <X className="w-3 h-3" />
                   </Button>
@@ -693,28 +698,26 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
                     ))}
                   </SelectContent>
                 </Select>
-                {!globalImageUrl && (
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="w-full"
-                    onClick={handleGenerateGlobalImage}
-                    disabled={isGeneratingGlobal || !globalStyle.trim()}
-                    data-testid="button-generate-global"
-                  >
-                    {isGeneratingGlobal ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        Generate from Prompt
-                      </>
-                    )}
-                  </Button>
-                )}
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="w-full"
+                  onClick={handleGenerateGlobalImage}
+                  disabled={isGeneratingGlobal || !globalStyle.trim()}
+                  data-testid="button-generate-global"
+                >
+                  {isGeneratingGlobal ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      {globalImageUrl ? "Regenerate" : "Generate from Prompt"}
+                    </>
+                  )}
+                </Button>
               </div>
             </div>
           </div>
