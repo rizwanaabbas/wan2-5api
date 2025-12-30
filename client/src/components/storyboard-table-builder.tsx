@@ -30,12 +30,11 @@ const IMAGE_MODELS = Object.entries(WAN_MODELS)
   .map(([key, meta]) => ({ value: key, label: meta.name }));
 
 const RESOLUTION_OPTIONS = [
-  { label: "1024×1024 (1:1)", value: "1024*1024" },
-  { label: "1280×1280 (1:1)", value: "1280*1280" },
-  { label: "1280×720 (16:9)", value: "1280*720" },
-  { label: "720×1280 (9:16)", value: "720*1280" },
   { label: "1280×960 (4:3)", value: "1280*960" },
   { label: "960×1280 (3:4)", value: "960*1280" },
+  { label: "1024×1024 (1:1)", value: "1024*1024" },
+  { label: "1280×720 (16:9)", value: "1280*720" },
+  { label: "720×1280 (9:16)", value: "720*1280" },
 ];
 
 export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: StoryboardTableBuilderProps) {
@@ -47,7 +46,7 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
   const [globalStyle, setGlobalStyle] = useState("");
   const [globalImageUrl, setGlobalImageUrl] = useState("");
   const [referenceMode, setReferenceMode] = useState<ReferenceMode>("global");
-  const [resolution, setResolution] = useState("1024*1024");
+  const [resolution, setResolution] = useState("1280*960");
   const [items, setItems] = useState<StoryboardItem[]>([]);
   const [isCreating, setIsCreating] = useState(!storyboardId);
   const [currentStoryboardId, setCurrentStoryboardId] = useState<string | null>(storyboardId || null);

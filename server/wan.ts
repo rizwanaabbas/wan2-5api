@@ -825,20 +825,23 @@ export async function startWan26ImageTask(
   ];
   
   // Convert images to base64 if provided (image-to-image mode)
+  let imageCount = 0;
   if (input.imageUrls && input.imageUrls.length > 0) {
+    const urls = input.imageUrls;
+    imageCount = urls.length;
     console.log(
-      `Converting ${input.imageUrls.length} images to base64 for Wan 2.6 Image task...`,
+      `Converting ${imageCount} images to base64 for Wan 2.6 Image task...`,
     );
     const base64Images = await Promise.all(
-      input.imageUrls.map(async (url, index) => {
+      urls.map(async (url, index) => {
         console.log(
-          `Converting image ${index + 1}/${input.imageUrls.length}: ${url.substring(0, 50)}...`,
+          `Converting image ${index + 1}/${imageCount}: ${url.substring(0, 50)}...`,
         );
         return await convertToBase64(url);
       }),
     );
     console.log(
-      `All ${input.imageUrls.length} images converted to base64 successfully`,
+      `All ${imageCount} images converted to base64 successfully`,
     );
     
     // Add each image to the content
@@ -864,13 +867,13 @@ export async function startWan26ImageTask(
       prompt_extend: input.promptExtend !== false,
       watermark: input.watermark || false,
       n: input.n || 1,
-      size: input.size || "1280*1280",
+      size: input.size || "1280*960",
     }
   };
 
   console.log("Wan 2.6 Image request:", JSON.stringify({
     ...requestBody,
-    input: { messages: [{ role: "user", content: `[text + ${base64Images.length} images]` }] }
+    input: { messages: [{ role: "user", content: `[text + ${imageCount} images]` }] }
   }, null, 2));
 
   const response = await fetch(
@@ -902,7 +905,7 @@ export async function startWan26ImageTask(
   }
 
   console.log(
-    `Wan 2.6 Image task started: ${result.output.task_id}, Prompt: "${input.prompt.substring(0, 50)}...", Images: ${input.imageUrls?.length || 0}, Size: ${input.size || "1280*1280"}, N: ${input.n || 1}`,
+    `Wan 2.6 Image task started: ${result.output.task_id}, Prompt: "${input.prompt.substring(0, 50)}...", Images: ${input.imageUrls?.length || 0}, Size: ${input.size || "1280*960"}, N: ${input.n || 1}`,
   );
   return result.output.task_id;
 }
