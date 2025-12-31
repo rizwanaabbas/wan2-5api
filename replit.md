@@ -3,7 +3,24 @@
 ## Overview
 VideoForge is an AI video generation platform leveraging Alibaba Cloud's Wan API via DashScope to create videos. It supports 13 Wan models across six generation categories (text-to-video, image-to-video, text-to-image, image-to-image, animation, keyframe-to-video), offering features like negative prompts, custom audio, and optimized resolutions. The platform provides a modern workspace for managing video generation projects, tracking real-time progress, organizing content, and creating storyboards with preview images before video generation, aiming to simplify AI-driven video creation for users.
 
-## Recent Changes (December 30, 2025)
+## Recent Changes (December 31, 2025)
+
+**Storyboard Persistence & Bulk Download**
+1. **Full Settings Persistence**: All storyboard settings now persist across page reloads
+   - `resolution` column added to save selected image resolution
+   - `generatedGlobalImageUrl` column stores the generated global/starting image
+   - All settings auto-save with 1-second debounce
+2. **Task Resumption**: Interrupted generations resume automatically on page reload
+   - Items with `generating` or `pending` status auto-resume polling
+   - Status endpoint persists completed images to database
+   - Poll status every 3 seconds until completion or failure
+3. **Bulk Download**: Download all generated images as a zip file
+   - GET `/api/storyboards/:id/download` creates zip archive
+   - Includes global image (00_global_image) and all item images (01_prompt_slug, etc.)
+   - Download button in storyboard header UI
+4. **Relative Image Paths**: All generated images use relative paths (`/objects/...`) for consistency across dev/prod environments
+
+## Changes (December 30, 2025)
 
 **New Storyboard Table System**
 1. **Tabular Interface**: Replaced card-based storyboard builder with table-based layout for better organization
@@ -17,7 +34,7 @@ VideoForge is an AI video generation platform leveraging Alibaba Cloud's Wan API
 4. **Global Style Prompts**: Style prefix applied to all scene prompts
 5. **Auto-Save**: 1-second debounced auto-save for storyboard config and items
 6. **New Database Schema**:
-   - `storyboards`: Added `globalStyle`, `globalImageUrl`, `referenceMode` columns
+   - `storyboards`: Added `globalStyle`, `globalImageUrl`, `referenceMode`, `resolution`, `generatedGlobalImageUrl` columns
    - `storyboard_items`: New table replacing `storyboard_images` with `prompt`, `model`, `referenceImageUrl`, `generatedImageUrl`, `status`, `taskId`, `order`
 7. **Generation Workflow**: Per-item generation with status polling (3-second intervals)
 8. **Component**: `StoryboardTableBuilder` in `client/src/components/storyboard-table-builder.tsx`
