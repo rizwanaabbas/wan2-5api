@@ -41,6 +41,8 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const itemImageInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
   
   const [name, setName] = useState("New Storyboard");
   const [globalStyle, setGlobalStyle] = useState("");
@@ -340,6 +342,52 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
     }
   };
 
+  const handleItemImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !uploadingItemId) return;
+    
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      
+      const res = await fetch("/api/objects/upload", {
+        method: "POST",
+        body: formData,
+      });
+      
+      if (!res.ok) {
+        throw new Error("Upload failed");
+      }
+      
+      const data = await res.json();
+      const imageUrl = data.objectPath || data.publicUrl || data.url || data.path;
+      console.log("Item image uploaded successfully:", imageUrl);
+      
+      if (!imageUrl) {
+        throw new Error("No image URL returned from server");
+      }
+      
+      // Update the item's reference image
+      setItems(prev => prev.map(item => 
+        item.id === uploadingItemId ? { ...item, referenceImageUrl: imageUrl } : item
+      ));
+      
+      // Save to server
+      updateItemMutation.mutate({ id: uploadingItemId, updates: { referenceImageUrl: imageUrl } });
+      toast({ title: "Image uploaded" });
+    } catch (error) {
+      console.error("Upload error:", error);
+      toast({ title: "Upload failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setIsUploading(false);
+      setUploadingItemId(null);
+      if (itemImageInputRef.current) {
+        itemImageInputRef.current.value = "";
+      }
+    }
+  };
+
   const getReferenceImageForItem = (item: StoryboardItem, index: number, chainOutputs?: Map<number, string>): string | undefined => {
     // Prefer generated global image over uploaded reference for scene generation
     const startingImage = generatedGlobalImageUrl || globalImageUrl;
@@ -622,6 +670,15 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
 
   return (
     <div className="flex flex-col h-full">
+      {/* Hidden file input for item image uploads */}
+      <input
+        ref={itemImageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleItemImageUpload}
+        data-testid="input-item-image"
+      />
       <div className="flex items-center justify-between p-4 border-b">
         <div className="flex items-center gap-4">
           <Input
@@ -914,8 +971,20 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
                       </TableCell>
                       <TableCell>
                         {referenceMode === "custom" ? (
-                          <div className="w-16 h-16">
-                            {item.referenceImageUrl ? (
+                          <div 
+                            className="w-16 h-16 cursor-pointer hover:opacity-80"
+                            onClick={() => {
+                              setUploadingItemId(item.id);
+                              itemImageInputRef.current?.click();
+                            }}
+                            title="Click to upload reference image"
+                            data-testid={`upload-reference-${index}`}
+                          >
+                            {isUploading && uploadingItemId === item.id ? (
+                              <div className="w-full h-full flex items-center justify-center border rounded bg-muted">
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              </div>
+                            ) : item.referenceImageUrl ? (
                               <img 
                                 src={item.referenceImageUrl} 
                                 alt="Reference" 
@@ -925,8 +994,8 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
                                 }}
                               />
                             ) : (
-                              <div className="w-full h-full flex items-center justify-center border-2 border-dashed rounded text-muted-foreground">
-                                <ImageIcon className="w-4 h-4" />
+                              <div className="w-full h-full flex items-center justify-center border-2 border-dashed rounded text-muted-foreground hover:bg-muted/50">
+                                <Upload className="w-4 h-4" />
                               </div>
                             )}
                           </div>

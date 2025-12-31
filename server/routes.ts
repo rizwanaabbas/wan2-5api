@@ -928,12 +928,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ext = ".webp";
     }
     
-    const storage = new DiskStorageService();
-    const uploadId = storage.generateUploadId(`generated${ext}`);
-    await storage.saveFile(uploadId, buffer, contentType);
+    const diskStorageService = new DiskStorageService();
+    const uploadId = diskStorageService.generateUploadId(`generated${ext}`);
+    await diskStorageService.saveFile(uploadId, buffer, contentType);
     
-    const baseUrl = process.env.APP_BASE_URL || "";
-    return `${baseUrl}/objects/${uploadId}`;
+    // Return relative path for consistency with uploads (works in dev and prod)
+    return `/objects/${uploadId}`;
   }
 
   // Check Wan 2.6 Image task status (supports multiple images)

@@ -942,9 +942,24 @@ export async function checkWan26ImageTaskStatus(
   console.log(`Wan 2.6 Image task ${taskId} status:`, taskStatus, JSON.stringify(result.output, null, 2));
 
   if (taskStatus === "SUCCEEDED") {
-    // Extract all image URLs from results
+    // Extract all image URLs from results - Wan 2.6 uses choices[].message.content[].image format
     const imageUrls: string[] = [];
-    if (result.output?.results) {
+    
+    // Try the new Wan 2.6 format: choices[].message.content[].image
+    if (result.output?.choices) {
+      for (const choice of result.output.choices) {
+        if (choice.message?.content) {
+          for (const contentItem of choice.message.content) {
+            if (contentItem.image) {
+              imageUrls.push(contentItem.image);
+            }
+          }
+        }
+      }
+    }
+    
+    // Fallback to old format: results[].url
+    if (imageUrls.length === 0 && result.output?.results) {
       for (const item of result.output.results) {
         if (item.url) {
           imageUrls.push(item.url);
@@ -954,7 +969,7 @@ export async function checkWan26ImageTaskStatus(
     
     console.log(`Wan 2.6 Image generation success, ${imageUrls.length} images:`, imageUrls);
     
-    // If no URLs found, check if there's an alternative structure
+    // If no URLs found, log the full response for debugging
     if (imageUrls.length === 0) {
       console.error("No image URLs found in result. Full output:", JSON.stringify(result, null, 2));
     }
