@@ -51,8 +51,10 @@ export const storyboards = pgTable("storyboards", {
   name: text("name").notNull(),
   generationType: text("generation_type").notNull(), // "t2i" or "i2i"
   globalStyle: text("global_style"), // Global style prompt applied to all items
-  globalImageUrl: text("global_image_url"), // Starting reference image
+  globalImageUrl: text("global_image_url"), // Starting reference image (uploaded)
+  generatedGlobalImageUrl: text("generated_global_image_url"), // Generated global image
   referenceMode: text("reference_mode").default("global"), // "global", "chain", "custom"
+  resolution: text("resolution").default("1280*960"), // Image resolution
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

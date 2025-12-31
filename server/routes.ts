@@ -1304,12 +1304,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update storyboard (auto-save global settings)
   app.patch("/api/storyboards/:id", async (req, res) => {
     try {
-      const { name, globalStyle, globalImageUrl, referenceMode } = req.body;
+      const { name, globalStyle, globalImageUrl, generatedGlobalImageUrl, referenceMode, resolution } = req.body;
       const storyboard = await storage.updateStoryboard(req.params.id, {
         name,
         globalStyle,
         globalImageUrl,
+        generatedGlobalImageUrl,
         referenceMode,
+        resolution,
       });
       if (!storyboard) {
         return res.status(404).json({ error: "Storyboard not found" });
@@ -1507,6 +1509,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Check storyboard item status error:", error);
       res.status(500).json({ error: "Failed to check status" });
+    }
+  });
+
+  // Download all generated images from a storyboard as a zip file
+  app.get("/api/storyboards/:id/download", async (req, res) => {
+    try {
+      const storyboard = await storage.getStoryboard(req.params.id);
+      if (!storyboard) {
+        return res.status(404).json({ error: "Storyboard not found" });
+      }
+
+      const diskStorageService = new DiskStorageService();
+      const archiver = (await import("archiver")).default;
+      const archive = archiver("zip", { zlib: { level: 9 } });
+
+      // Set headers for zip download
+      const safeName = storyboard.name.replace(/[^a-zA-Z0-9-_]/g, "_");
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", `attachment; filename="${safeName}_images.zip"`);
+
+      archive.pipe(res);
+
+      // Add global generated image if exists
+      if (storyboard.generatedGlobalImageUrl) {
+        try {
+          const buffer = diskStorageService.readFile(storyboard.generatedGlobalImageUrl);
+          const ext = storyboard.generatedGlobalImageUrl.split(".").pop() || "png";
+          archive.append(buffer, { name: `00_global_image.${ext}` });
+        } catch (e) {
+          console.error("Failed to add global image to zip:", e);
+        }
+      }
+
+      // Add all generated item images
+      let imageIndex = 1;
+      for (const item of storyboard.items || []) {
+        if (item.generatedImageUrl) {
+          try {
+            const buffer = diskStorageService.readFile(item.generatedImageUrl);
+            const ext = item.generatedImageUrl.split(".").pop() || "png";
+            const promptSlug = item.prompt.substring(0, 30).replace(/[^a-zA-Z0-9]/g, "_");
+            archive.append(buffer, { name: `${String(imageIndex).padStart(2, "0")}_${promptSlug}.${ext}` });
+            imageIndex++;
+          } catch (e) {
+            console.error(`Failed to add item image ${item.id} to zip:`, e);
+          }
+        }
+      }
+
+      if (imageIndex === 1 && !storyboard.generatedGlobalImageUrl) {
+        return res.status(400).json({ error: "No generated images to download" });
+      }
+
+      await archive.finalize();
+    } catch (error) {
+      console.error("Download storyboard images error:", error);
+      res.status(500).json({ error: "Failed to create zip file" });
     }
   });
 

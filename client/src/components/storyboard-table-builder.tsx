@@ -69,16 +69,77 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
     enabled: !!currentStoryboardId,
   });
 
+  // Resume polling for an item that was generating when page reloaded
+  const resumePollingForItem = useCallback(async (itemId: string) => {
+    setPollingItems(prev => new Set(Array.from(prev).concat(itemId)));
+    
+    const maxAttempts = 120;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      try {
+        const res = await fetch(`/api/storyboard-items/${itemId}/status`);
+        const data = await res.json();
+        
+        if (data.status === "completed") {
+          setItems(prev => prev.map(item => 
+            item.id === itemId ? { ...item, status: "completed", generatedImageUrl: data.generatedImageUrl } : item
+          ));
+          setPollingItems(prev => {
+            const next = new Set(Array.from(prev));
+            next.delete(itemId);
+            return next;
+          });
+          toast({ title: "Image generation completed" });
+          return;
+        } else if (data.status === "failed") {
+          setItems(prev => prev.map(item => 
+            item.id === itemId ? { ...item, status: "failed" } : item
+          ));
+          setPollingItems(prev => {
+            const next = new Set(Array.from(prev));
+            next.delete(itemId);
+            return next;
+          });
+          toast({ title: "Generation failed", variant: "destructive" });
+          return;
+        }
+      } catch (error) {
+        console.error("Resume polling error:", error);
+      }
+    }
+    
+    setPollingItems(prev => {
+      const next = new Set(Array.from(prev));
+      next.delete(itemId);
+      return next;
+    });
+  }, [toast]);
+
   useEffect(() => {
     if (storyboard) {
       setName(storyboard.name);
       setGlobalStyle(storyboard.globalStyle || "");
       setGlobalImageUrl(storyboard.globalImageUrl || "");
+      setGeneratedGlobalImageUrl(storyboard.generatedGlobalImageUrl || "");
       setReferenceMode((storyboard.referenceMode as ReferenceMode) || "global");
+      setResolution(storyboard.resolution || "1280*960");
       setItems(storyboard.items || []);
       setIsCreating(false);
+      
+      // Resume polling for items that are still generating
+      const generatingItems = storyboard.items?.filter(item => 
+        item.status === "generating" || item.status === "pending"
+      ) || [];
+      if (generatingItems.length > 0) {
+        generatingItems.forEach(item => {
+          if (item.taskId) {
+            resumePollingForItem(item.id);
+          }
+        });
+      }
     }
-  }, [storyboard]);
+  }, [storyboard, resumePollingForItem]);
 
   const createStoryboardMutation = useMutation({
     mutationFn: async () => {
@@ -110,12 +171,14 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
         name,
         globalStyle,
         globalImageUrl,
+        generatedGlobalImageUrl,
         referenceMode,
+        resolution,
       });
     } catch (error) {
       console.error("Auto-save failed:", error);
     }
-  }, [currentStoryboardId, name, globalStyle, globalImageUrl, referenceMode]);
+  }, [currentStoryboardId, name, globalStyle, globalImageUrl, generatedGlobalImageUrl, referenceMode, resolution]);
 
   useEffect(() => {
     if (!currentStoryboardId) return;
@@ -130,7 +193,7 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
         clearTimeout(autoSaveTimeoutRef.current);
       }
     };
-  }, [name, globalStyle, globalImageUrl, referenceMode, autoSaveStoryboard, currentStoryboardId]);
+  }, [name, globalStyle, globalImageUrl, generatedGlobalImageUrl, referenceMode, resolution, autoSaveStoryboard, currentStoryboardId]);
 
   const addItemMutation = useMutation({
     mutationFn: async (prompt: string) => {
@@ -660,6 +723,41 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
     toast({ title: "Sample file downloaded" });
   };
 
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadAllAsZip = async () => {
+    if (!currentStoryboardId) return;
+    
+    const hasGeneratedImages = items.some(item => item.generatedImageUrl) || generatedGlobalImageUrl;
+    if (!hasGeneratedImages) {
+      toast({ title: "No images to download", description: "Generate some images first", variant: "destructive" });
+      return;
+    }
+    
+    setIsDownloading(true);
+    try {
+      const response = await fetch(`/api/storyboards/${currentStoryboardId}/download`);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Download failed");
+      }
+      
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${name.replace(/[^a-zA-Z0-9-_]/g, "_")}_images.zip`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Download complete" });
+    } catch (error) {
+      console.error("Download error:", error);
+      toast({ title: "Download failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -697,6 +795,22 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
             <Upload className="w-4 h-4 mr-2" />
             Import
           </Button>
+          {currentStoryboardId && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleDownloadAllAsZip}
+              disabled={isDownloading || !items.some(item => item.generatedImageUrl)}
+              data-testid="button-download-all"
+            >
+              {isDownloading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 mr-2" />
+              )}
+              Download All
+            </Button>
+          )}
           {!currentStoryboardId && (
             <Button 
               onClick={() => createStoryboardMutation.mutate()}
