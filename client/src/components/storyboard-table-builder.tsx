@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Upload, Download, RefreshCw, Loader2, Image as ImageIcon, Plus, Trash2, Link2, ChevronDown, Save, FileJson, FileSpreadsheet, X } from "lucide-react";
+import { Upload, Download, RefreshCw, Loader2, Image as ImageIcon, Plus, Trash2, Link2, ChevronDown, Save, FileJson, FileSpreadsheet, X, Play, Square } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -679,6 +679,99 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
     toast({ title: "Cancelling generation..." });
   };
 
+  // Resume generation for incomplete items (failed or pending)
+  const handleResumeGeneration = async () => {
+    const incompleteItems = items.filter(item => 
+      item.status !== "completed" || !item.generatedImageUrl
+    );
+    
+    if (incompleteItems.length === 0) {
+      toast({ title: "All scenes are already completed" });
+      return;
+    }
+    
+    const startingImage = generatedGlobalImageUrl || globalImageUrl;
+    if (referenceMode === "chain" && !startingImage && incompleteItems[0] === items[0]) {
+      toast({ title: "Please upload or generate a starting image first", variant: "destructive" });
+      return;
+    }
+    
+    setIsChainGenerating(true);
+    setChainProgress({ current: 0, total: incompleteItems.length });
+    cancelChainRef.current = false;
+    
+    // Build chain outputs map from already completed items
+    const chainOutputs = new Map<number, string>();
+    items.forEach((item, idx) => {
+      if (item.generatedImageUrl && item.status === "completed") {
+        chainOutputs.set(idx, item.generatedImageUrl);
+      }
+    });
+    
+    try {
+      let processed = 0;
+      for (let i = 0; i < items.length; i++) {
+        if (cancelChainRef.current) {
+          toast({ title: "Generation cancelled" });
+          break;
+        }
+        
+        const item = items[i];
+        
+        // Skip completed items
+        if (item.generatedImageUrl && item.status === "completed") {
+          continue;
+        }
+        
+        processed++;
+        setChainProgress({ current: processed, total: incompleteItems.length });
+        
+        // Get reference image
+        let refImage: string | undefined;
+        if (referenceMode === "chain") {
+          if (i === 0) {
+            refImage = startingImage || undefined;
+          } else {
+            refImage = chainOutputs.get(i - 1) || undefined;
+          }
+        } else {
+          refImage = getReferenceImageForItem(item, i);
+        }
+        
+        if (!refImage && referenceMode !== "custom") {
+          toast({ title: `Scene ${i + 1}: No reference image available`, variant: "destructive" });
+          continue;
+        }
+        
+        setItems(prev => prev.map(it => it.id === item.id ? { ...it, status: "generating" } : it));
+        
+        try {
+          const res = await apiRequest("POST", `/api/storyboard-items/${item.id}/generate`, {
+            referenceImageUrl: refImage,
+            size: resolution,
+            promptExtend: true,
+          });
+          await res.json();
+          
+          const outputUrl = await pollForCompletion(item.id);
+          
+          if (outputUrl) {
+            chainOutputs.set(i, outputUrl);
+            toast({ title: `Scene ${i + 1} completed` });
+          } else if (cancelChainRef.current) {
+            break;
+          }
+        } catch (error) {
+          console.error(`Error generating scene ${i + 1}:`, error);
+          toast({ title: `Scene ${i + 1} failed`, variant: "destructive" });
+        }
+      }
+    } finally {
+      setIsChainGenerating(false);
+      setChainProgress({ current: 0, total: 0 });
+    }
+  };
+
   const handleAddRow = () => {
     if (!currentStoryboardId) {
       toast({ title: "Please create the storyboard first", variant: "destructive" });
@@ -1031,15 +1124,24 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
                     Add Row
                   </Button>
                   {isChainGenerating ? (
-                    <Button variant="destructive" size="sm" onClick={handleCancelChain} data-testid="button-cancel-generate">
-                      <X className="w-4 h-4 mr-2" />
+                    <Button variant="destructive" size="sm" onClick={handleCancelChain} data-testid="button-stop-generate">
+                      <Square className="w-4 h-4 mr-2" />
                       Stop
                     </Button>
                   ) : (
-                    <Button size="sm" onClick={handleGenerateAll} disabled={isGeneratingGlobal} data-testid="button-generate-all">
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      Generate All
-                    </Button>
+                    <>
+                      {items.some(item => item.status !== "completed" || !item.generatedImageUrl) && 
+                       items.some(item => item.generatedImageUrl && item.status === "completed") && (
+                        <Button variant="outline" size="sm" onClick={handleResumeGeneration} disabled={isGeneratingGlobal} data-testid="button-resume-generate">
+                          <Play className="w-4 h-4 mr-2" />
+                          Resume
+                        </Button>
+                      )}
+                      <Button size="sm" onClick={handleGenerateAll} disabled={isGeneratingGlobal} data-testid="button-generate-all">
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Generate All
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
