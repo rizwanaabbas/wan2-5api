@@ -790,11 +790,52 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
     updateItemMutation.mutate({ id, updates: { model } });
   };
 
-  const handleDownloadImage = (url: string, index: number) => {
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `scene-${index + 1}.png`;
-    link.click();
+  const handleDownloadImage = async (url: string, index: number, filename?: string) => {
+    try {
+      // Load image and convert to JPEG using canvas
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Failed to load image"));
+        img.src = url;
+      });
+      
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Failed to get canvas context");
+      
+      // Fill with white background (for transparency)
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      
+      // Convert to JPEG blob
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (b) => b ? resolve(b) : reject(new Error("Failed to create blob")),
+          "image/jpeg",
+          0.92
+        );
+      });
+      
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = filename || `scene-${index + 1}.jpg`;
+      link.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error("Download error:", error);
+      // Fallback to direct download
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename || `scene-${index + 1}.jpg`;
+      link.click();
+    }
   };
 
   const handleDownloadSample = () => {
@@ -1008,10 +1049,7 @@ export function StoryboardTableBuilder({ projectId, storyboardId, onClose }: Sto
                       className="absolute -bottom-2 -right-2 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={(e) => {
                         e.stopPropagation();
-                        const link = document.createElement("a");
-                        link.href = generatedGlobalImageUrl;
-                        link.download = "generated-global.png";
-                        link.click();
+                        handleDownloadImage(generatedGlobalImageUrl, -1, "generated-global.jpg");
                       }}
                       title="Download"
                       data-testid="button-download-generated-global"

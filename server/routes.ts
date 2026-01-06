@@ -1512,7 +1512,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Download all generated images from a storyboard as a zip file
+  // Download all generated images from a storyboard as a zip file (JPEG format)
   app.get("/api/storyboards/:id/download", async (req, res) => {
     try {
       const storyboard = await storage.getStoryboard(req.params.id);
@@ -1522,7 +1522,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const diskStorageService = new DiskStorageService();
       const archiver = (await import("archiver")).default;
+      const sharp = (await import("sharp")).default;
       const archive = archiver("zip", { zlib: { level: 9 } });
+
+      // Helper to convert image buffer to JPEG
+      const toJpeg = async (buffer: Buffer): Promise<Buffer> => {
+        return sharp(buffer)
+          .flatten({ background: { r: 255, g: 255, b: 255 } }) // Handle transparency
+          .jpeg({ quality: 92 })
+          .toBuffer();
+      };
 
       // Set headers for zip download
       const safeName = storyboard.name.replace(/[^a-zA-Z0-9-_]/g, "_");
@@ -1535,8 +1544,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (storyboard.generatedGlobalImageUrl) {
         try {
           const buffer = diskStorageService.readFile(storyboard.generatedGlobalImageUrl);
-          const ext = storyboard.generatedGlobalImageUrl.split(".").pop() || "png";
-          archive.append(buffer, { name: `00_global_image.${ext}` });
+          const jpegBuffer = await toJpeg(buffer);
+          archive.append(jpegBuffer, { name: `00_global_image.jpg` });
         } catch (e) {
           console.error("Failed to add global image to zip:", e);
         }
@@ -1548,9 +1557,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (item.generatedImageUrl) {
           try {
             const buffer = diskStorageService.readFile(item.generatedImageUrl);
-            const ext = item.generatedImageUrl.split(".").pop() || "png";
+            const jpegBuffer = await toJpeg(buffer);
             const promptSlug = item.prompt.substring(0, 30).replace(/[^a-zA-Z0-9]/g, "_");
-            archive.append(buffer, { name: `${String(imageIndex).padStart(2, "0")}_${promptSlug}.${ext}` });
+            archive.append(jpegBuffer, { name: `${String(imageIndex).padStart(2, "0")}_${promptSlug}.jpg` });
             imageIndex++;
           } catch (e) {
             console.error(`Failed to add item image ${item.id} to zip:`, e);
